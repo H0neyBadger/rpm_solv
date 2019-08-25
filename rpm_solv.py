@@ -510,20 +510,23 @@ parser.add_argument('--repodir',
                     help='repository directory')
 parser.add_argument('--enablerepo', action="append", 
                     type=str, help="limit to specified repositories")
-parser.add_argument('--disablerepo', action="append", 
-                    type=str, help="limit to specified repositories")
+#parser.add_argument('--disablerepo', action="append", 
+#                    type=str, help="limit to specified repositories")
 parser.add_argument('packages', metavar='p', type=str, nargs='+',
                     help='list of packages to solve')
 parser.add_argument('--basearch', default="x86_64", 
                     type=str, help="Base architecture")
 parser.add_argument('--releasever', default="30", 
                     type=str, help="Release version")
+parser.add_argument('--exportdir', default="./", 
+                    type=dir_path, help="Directory to use for data.json export")
 
 
 args = parser.parse_args()
 
 # action_solver = solv.Job.SOLVER_DISTUPGRADE
 # action_solver = solv.Job.SOLVER_UPDATE
+# use a fake install to force full rpm depedencies 
 action_solver = solv.Job.SOLVER_INSTALL
 
 # read all repo configs
@@ -774,5 +777,5 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
     print('')
 print("install size change: %d K" % trans.calc_installsizechange())
 
-with open('/var/cache/solv/data.json', 'w', encoding='utf-8') as f:
+with open('{}/data.json'.format(args.exportdir), 'w', encoding='utf-8') as f:
     json.dump(data, f, ensure_ascii=False, indent=4)
