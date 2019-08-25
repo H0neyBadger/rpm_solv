@@ -645,6 +645,7 @@ for job in jobs:
         str_patchcategory = s.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
         str_severity = s.lookup_str(solv.UPDATE_SEVERITY)
         str_reboot = s.lookup_str(solv.UPDATE_REBOOT)
+        num_buildtime = s.lookup_num(solv.SOLVABLE_BUILDTIME)
 
         pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
         # remove conflicts to avoid problems resolution
@@ -671,6 +672,7 @@ for job in jobs:
                     "name": str_name,
                     "severity": str_severity,
                     "patchcategory": str_patchcategory,
+                    "buildtime": num_buildtime,
                 }
                 advisories.append(adv)
                 jobs += sel.jobs(action_solver)
@@ -758,16 +760,19 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
         str_name = p.lookup_str(solv.SOLVABLE_NAME)
         str_arch = p.lookup_str(solv.SOLVABLE_ARCH)
         str_evr = p.lookup_str(solv.SOLVABLE_EVR)
-        str_buildtime = p.lookup_str(solv.SOLVABLE_BUILDTIME)
+        num_buildtime = p.lookup_num(solv.SOLVABLE_BUILDTIME)
+
         nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
         # update or insert errata in packages list
         na = "{}.{}".format(str_name, str_arch)
         d = data.get(na,{})
         data[na] = d
+        d['nevra'] = nevra
         d['name'] = str_name
         d['evr'] = str_evr
         d['arch'] = str_arch
         d['repo'] = str(p.repo) 
+        d['buildtime'] = num_buildtime
 
         if cl.type == solv.Transaction.SOLVER_TRANSACTION_UPGRADED or cl.type == solv.Transaction.SOLVER_TRANSACTION_DOWNGRADED:
             op = trans.othersolvable(p)
