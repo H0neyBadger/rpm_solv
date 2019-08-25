@@ -14,6 +14,8 @@ import re
 import glob
 import tempfile
 import time
+import json
+
 
 # to read yum config
 import configparser
@@ -620,7 +622,9 @@ if not jobs:
     print("no package matched.")
     sys.exit(1)
 
+# returned data
 data={}
+
 for job in jobs:
     for s in job.solvables():
         print("Name:        %s" % s)
@@ -633,30 +637,47 @@ for job in jobs:
         if str_license:
             print("License:     %s" % str_license)
         print("Description:\n%s" % s.lookup_str(solv.SOLVABLE_DESCRIPTION))
+        
+        str_name = s.lookup_str(solv.SOLVABLE_NAME)
+        str_patchcategory = s.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
+        str_severity = s.lookup_str(solv.UPDATE_SEVERITY)
+        str_reboot = s.lookup_str(solv.UPDATE_REBOOT)
+
         pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
-        #pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '', 0)
+        # remove conflicts to avoid problems resolution
+        s.unset(solv.SOLVABLE_CONFLICTS)
         pack.prepend_keyname(solv.UPDATE_COLLECTION)
         for p in pack:
             pos = p.parentpos()
-            str_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
-            str_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
-            str_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
+            str_col_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
+            str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
+            str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
             #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
-            nevra = "{}-{}.{}".format(str_name,str_evr, str_arch)
+            nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
             sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
-            if sel:
+            if sel.solvables():
                 #print("collection: {}".format(nevra))
                 # update or insert errata in packages list
-                na = "{}.{}".format(str_name, str_arch)
+                na = "{}.{}".format(str_col_name, str_col_arch)
                 d = data.get(na,{})
                 data[na] = d
                 advisories = d.get('advisories',[])
                 d['advisories'] = advisories
-                advisories.append(s.name)
+                
+                adv = {
+                    "name": str_name,
+                    "severity": str_severity,
+                    "patchcategory": str_patchcategory,
+                }
+                advisories.append(adv)
                 jobs += sel.jobs(action_solver)
         print('')
-
+#sys.exit()
 #print(data)
+
+for job in jobs:
+    job.how |= solv.Job.SOLVER_FORCEBEST
+    job.how |= solv.Job.SOLVER_CLEANDEPS
 
 #pool.set_debuglevel(2)
 solver = pool.Solver()
@@ -671,13 +692,20 @@ while True:
         print("Problem %d/%d:" % (problem.id, len(problems)))
         print(problem)
         solutions = problem.solutions()
+        c_element = None
         for solution in solutions:
             print("  Solution %d:" % solution.id)
             elements = solution.elements(True)
+            c = solution.element_count()
+            if c_element is None or c < c_element: 
+                # chose the the "smallest" solution
+                sol = str(solution.id)
+                c_element = c
             for element in elements:
                 print("  - %s" % element.str())
             print('')
-        sol = ''
+        #sol = ''
+        print("selected solution #{}".format(sol))
         while not (sol == 's' or sol == 'q' or (sol.isdigit() and int(sol) >= 1 and int(sol) <= len(solutions))):
             sys.stdout.write("Please choose a solution: ")
             sys.stdout.flush()
@@ -724,6 +752,20 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
     else:
         continue
     for p in cl.solvables():
+        str_name = p.lookup_str(solv.SOLVABLE_NAME)
+        str_arch = p.lookup_str(solv.SOLVABLE_ARCH)
+        str_evr = p.lookup_str(solv.SOLVABLE_EVR)
+        str_buildtime = p.lookup_str(solv.SOLVABLE_BUILDTIME)
+        nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
+        # update or insert errata in packages list
+        na = "{}.{}".format(str_name, str_arch)
+        d = data.get(na,{})
+        data[na] = d
+        d['name'] = str_name
+        d['evr'] = str_evr
+        d['arch'] = str_arch
+        d['repo'] = str(p.repo) 
+
         if cl.type == solv.Transaction.SOLVER_TRANSACTION_UPGRADED or cl.type == solv.Transaction.SOLVER_TRANSACTION_DOWNGRADED:
             op = trans.othersolvable(p)
             print("  - %s -> %s" % (p, op))
@@ -732,3 +774,5 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
     print('')
 print("install size change: %d K" % trans.calc_installsizechange())
 
+with open('/var/cache/solv/data.json', 'w', encoding='utf-8') as f:
+    json.dump(data, f, ensure_ascii=False, indent=4)
