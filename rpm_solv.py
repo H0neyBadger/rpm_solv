@@ -466,7 +466,7 @@ class repo_system(repo_generic):
     def load(self, pool):
         self.handle = pool.add_repo(self.name)
         self.handle.appdata = self
-        pool.installed = self.handle
+        #pool.installed = self.handle
         sys.stdout.write("rpm database: ")
         self['cookie'] = self.calc_cookie_file("/var/lib/rpm/Packages")
         if self.usecachedrepo(None):
@@ -521,7 +521,8 @@ parser.add_argument('--releasever', default="30",
 args = parser.parse_args()
 
 # action_solver = solv.Job.SOLVER_DISTUPGRADE
-action_solver = solv.Job.SOLVER_UPDATE
+# action_solver = solv.Job.SOLVER_UPDATE
+action_solver = solv.Job.SOLVER_INSTALL
 
 # read all repo configs
 repos = []
@@ -593,37 +594,33 @@ pool.createwhatprovides()
 # convert arguments into jobs
 jobs = []
 for arg in args.packages:
-    if cmdlinerepo and arg in cmdlinerepo['packages']:
-        jobs.append(pool.Job(solv.Job.SOLVER_SOLVABLE, cmdlinerepo['packages'][arg].id))
-    else:
-        flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
-        flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
-        if len(arg) and arg[0] == '/':
-            flags |= solv.Selection.SELECTION_FILELIST
-            if cmd == 'erase':
-                flags |= solv.Selection.SELECTION_INSTALLED_ONLY
-        sel = pool.select(arg, flags)
+    flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
+    flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
+    if len(arg) and arg[0] == '/':
+        flags |= solv.Selection.SELECTION_FILELIST
+    sel = pool.select(arg, flags)
+    if repofilter:
+       sel.filter(repofilter)
+    if sel.isempty():
+        sel = pool.select(arg, flags | solv.Selection.SELECTION_NOCASE)
         if repofilter:
            sel.filter(repofilter)
-        if sel.isempty():
-            sel = pool.select(arg, flags | solv.Selection.SELECTION_NOCASE)
-            if repofilter:
-               sel.filter(repofilter)
-            if not sel.isempty():
-                print("[ignoring case for '%s']" % arg)
-        if sel.isempty():
-            print("nothing matches '%s'" % arg)
-            sys.exit(1)
-        if sel.flags & solv.Selection.SELECTION_FILELIST:
-            print("[using file list match for '%s']" % arg)
-        if sel.flags & solv.Selection.SELECTION_PROVIDES:
-            print("[using capability match for '%s']" % arg)
-        jobs += sel.jobs(action_solver)
+        if not sel.isempty():
+            print("[ignoring case for '%s']" % arg)
+    if sel.isempty():
+        print("nothing matches '%s'" % arg)
+        sys.exit(1)
+    if sel.flags & solv.Selection.SELECTION_FILELIST:
+        print("[using file list match for '%s']" % arg)
+    if sel.flags & solv.Selection.SELECTION_PROVIDES:
+        print("[using capability match for '%s']" % arg)
+    jobs += sel.jobs(action_solver)
 
 if not jobs:
     print("no package matched.")
     sys.exit(1)
 
+data={}
 for job in jobs:
     for s in job.solvables():
         print("Name:        %s" % s)
@@ -636,11 +633,35 @@ for job in jobs:
         if str_license:
             print("License:     %s" % str_license)
         print("Description:\n%s" % s.lookup_str(solv.SOLVABLE_DESCRIPTION))
+        pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
+        #pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '', 0)
+        pack.prepend_keyname(solv.UPDATE_COLLECTION)
+        for p in pack:
+            pos = p.parentpos()
+            str_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
+            str_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
+            str_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
+            #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
+            nevra = "{}-{}.{}".format(str_name,str_evr, str_arch)
+            sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
+            if sel:
+                #print("collection: {}".format(nevra))
+                # update or insert errata in packages list
+                na = "{}.{}".format(str_name, str_arch)
+                d = data.get(na,{})
+                data[na] = d
+                advisories = d.get('advisories',[])
+                d['advisories'] = advisories
+                advisories.append(s.name)
+                jobs += sel.jobs(action_solver)
         print('')
+
+#print(data)
 
 #pool.set_debuglevel(2)
 solver = pool.Solver()
-solver.set_flag(solv.Solver.SOLVER_FLAG_SPLITPROVIDES, 1);
+solver.set_flag(solv.Solver.SOLVER_FLAG_SPLITPROVIDES, 1)
+
 
 while True:
     problems = solver.solve(jobs)
