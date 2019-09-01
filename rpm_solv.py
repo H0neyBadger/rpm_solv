@@ -797,6 +797,7 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
         print("%d arch changes from '%s' to '%s':" % (cl.count, cl.fromstr, cl.tostr))
     else:
         continue
+    evr_re = re.compile('^(?:(?P<epoch>\d+):)?(?P<version>.*?)(?:\.(?P<release>\w+))?$')
     for p in cl.solvables():
         str_name = p.lookup_str(solv.SOLVABLE_NAME)
         str_arch = p.lookup_str(solv.SOLVABLE_ARCH)
@@ -814,6 +815,22 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
         d['arch'] = str_arch
         d['repo'] = str(p.repo) 
         d['buildtime'] = num_buildtime
+        # 1:3.0.12-17.el7
+        ma = evr_re.match(str_evr)
+        if ma is not None: 
+            md = ma.groupdict()
+            e = md['epoch']
+            if not e:
+                d['epoch'] = '0'
+            else :
+                d['epoch'] = e
+            d['version'] = ma['version']
+            d['release'] = ma['release']
+        if d['release']:
+            frmt_str = '{epoch}:{name}-{version}-{release}.{arch}'
+        else: 
+            frmt_str = '{epoch}:{name}-{version}.{arch}'
+        d['envra'] = frmt_str.format(**d)
 
         if cl.type == solv.Transaction.SOLVER_TRANSACTION_UPGRADED or cl.type == solv.Transaction.SOLVER_TRANSACTION_DOWNGRADED:
             op = trans.othersolvable(p)
