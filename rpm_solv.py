@@ -642,11 +642,24 @@ for job in jobs:
         print("Description:\n%s" % s.lookup_str(solv.SOLVABLE_DESCRIPTION))
         
         str_name = s.lookup_str(solv.SOLVABLE_NAME)
+        str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
         str_patchcategory = s.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
         str_severity = s.lookup_str(solv.UPDATE_SEVERITY)
         str_reboot = s.lookup_str(solv.UPDATE_REBOOT)
         num_buildtime = s.lookup_num(solv.SOLVABLE_BUILDTIME)
+        
+        # keep the latest version of each 
+        # duplicated packages in jobs
+        na = "{}.{}".format(str_name, str_arch)
+        d = data.get(na,{})
+        data[na] = d
+        other = d.get('solvable', None)
+        # keep the latest solvable 
+        if not other or s.evrcmp(other) == 1:
+            d['solvable'] = s
 
+        # read UPDATE_COLLECTION to add advisories packages
+        # to the solver process 
         pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
         # remove conflicts to avoid problems resolution
         s.unset(solv.SOLVABLE_CONFLICTS)
@@ -659,9 +672,11 @@ for job in jobs:
             #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
             nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
             sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
-            if sel.solvables():
+            for cs in sel.solvables():
                 #print("collection: {}".format(nevra))
                 # update or insert errata in packages list
+                str_col_name = cs.lookup_str(solv.SOLVABLE_NAME)
+                str_col_arch = cs.lookup_str(solv.SOLVABLE_ARCH) 
                 na = "{}.{}".format(str_col_name, str_col_arch)
                 d = data.get(na,{})
                 data[na] = d
@@ -674,11 +689,27 @@ for job in jobs:
                     "patchcategory": str_patchcategory,
                     "buildtime": num_buildtime,
                 }
+                other = d.get('solvable', None)
+                # keep the latest solvable 
+                if not other or cs.evrcmp(other) == 1:
+                    d['solvable'] = cs
+
                 advisories.append(adv)
                 jobs += sel.jobs(action_solver)
+        
         print('')
-#sys.exit()
-#print(data)
+
+jobs = []
+# rebuild jobs from filtered unique data
+for key, val in data.items():
+    s = val.get('solvable') 
+    if s:
+        str_evr = s.lookup_str(solv.SOLVABLE_EVR)
+        str_name = s.lookup_str(solv.SOLVABLE_NAME)
+        str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+        nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
+        sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
+        jobs += sel.jobs(action_solver)
 
 for job in jobs:
     job.how |= solv.Job.SOLVER_FORCEBEST
@@ -686,8 +717,10 @@ for job in jobs:
 
 #pool.set_debuglevel(2)
 solver = pool.Solver()
-solver.set_flag(solv.Solver.SOLVER_FLAG_SPLITPROVIDES, 1)
+flags = solv.Solver.SOLVER_FLAG_SPLITPROVIDES \
+    #| solv.Solver.SOLVER_SOLUTION_BEST \
 
+solver.set_flag(flags, 1)
 
 while True:
     problems = solver.solve(jobs)
@@ -709,8 +742,8 @@ while True:
             for element in elements:
                 print("  - %s" % element.str())
             print('')
-        #sol = ''
-        print("selected solution #{}".format(sol))
+        # sol = ''
+        print("Selected solution #{}".format(sol))
         while not (sol == 's' or sol == 'q' or (sol.isdigit() and int(sol) >= 1 and int(sol) <= len(solutions))):
             sys.stdout.write("Please choose a solution: ")
             sys.stdout.flush()
@@ -781,6 +814,16 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
             print("  - %s" % p)
     print('')
 print("install size change: %d K" % trans.calc_installsizechange())
+
+# remove empty data
+for key in data.copy().keys():
+    n = data[key].get('name', None)
+    if not n:
+        del data[key]
+
+# remove solvable data
+for key, val in data.items():
+    s = val.pop('solvable', None)
 
 with open('{}/data.json'.format(args.exportdir), 'w', encoding='utf-8') as f:
     json.dump(data, f, ensure_ascii=False, indent=4)
