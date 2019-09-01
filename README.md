@@ -26,6 +26,7 @@ cat ./data.json
     --repodir ./repos/ \
     --basearch ppc64le \
     --releasever 29 \
+    --weak \
     'patch:*'
 ```
 

@@ -520,6 +520,10 @@ parser.add_argument('--releasever', default="30",
                     type=str, help="Release version")
 parser.add_argument('--exportdir', default="./", 
                     type=dir_path, help="Directory to use for data.json export")
+parser.add_argument('--weak', action='store_true', default=False,
+                    help="The solver tries to fulfill weak jobs, " \
+                        "but does not report a problem " \
+                        "if it is not possible to do so.")
 
 
 args = parser.parse_args()
@@ -714,6 +718,8 @@ for key, val in data.items():
 for job in jobs:
     job.how |= solv.Job.SOLVER_FORCEBEST
     job.how |= solv.Job.SOLVER_CLEANDEPS
+    if args.weak:
+        job.how |= solv.Job.SOLVER_WEAK
 
 #pool.set_debuglevel(2)
 solver = pool.Solver()
@@ -739,6 +745,8 @@ while True:
                 # chose the the "smallest" solution
                 sol = str(solution.id)
                 c_element = c
+            elif c == c_element:
+                sol = ''
             for element in elements:
                 print("  - %s" % element.str())
             print('')
