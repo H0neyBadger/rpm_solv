@@ -468,7 +468,7 @@ class repo_system(repo_generic):
     def load(self, pool):
         self.handle = pool.add_repo(self.name)
         self.handle.appdata = self
-        #pool.installed = self.handle
+        pool.installed = self.handle
         sys.stdout.write("rpm database: ")
         self['cookie'] = self.calc_cookie_file("/var/lib/rpm/Packages")
         if self.usecachedrepo(None):
@@ -557,8 +557,8 @@ pool.setarch(args.basearch)
 pool.set_loadcallback(load_stub)
 
 # now load all enabled repos into the pool
-sysrepo = repo_system('@System', 'system')
-sysrepo.load(pool)
+#sysrepo = repo_system('@System', 'system')
+#sysrepo.load(pool)
 for repo in repos:
     if int(repo['enabled']):
         repo.load(pool)
@@ -594,7 +594,7 @@ if cmdlinerepo:
 
 addedprovides = pool.addfileprovides_queue()
 if addedprovides:
-    sysrepo.updateaddedprovides(addedprovides)
+    #sysrepo.updateaddedprovides(addedprovides)
     for repo in repos:
         repo.updateaddedprovides(addedprovides)
 
