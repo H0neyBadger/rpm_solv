@@ -827,7 +827,7 @@ for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | so
             d['version'] = ma['version']
             d['release'] = ma['release']
         if d['release']:
-            frmt_str = '{epoch}:{name}-{version}-{release}.{arch}'
+            frmt_str = '{epoch}:{name}-{version}.{release}.{arch}'
         else: 
             frmt_str = '{epoch}:{name}-{version}.{arch}'
         d['envra'] = frmt_str.format(**d)
