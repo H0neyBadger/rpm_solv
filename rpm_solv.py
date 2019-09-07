@@ -488,6 +488,29 @@ class repo_cmdline(repo_generic):
         self.handle.appdata = self 
         return True
 
+def get_repofilter(repos, pkg='', repofilterlist=None):
+    repofilter = None
+    if pkg.startswith("repo:"):
+        # retrieve custom repo keyword
+        # repo:foo:*
+        keyword, reponame, pkg = pkg.split(':', 2)
+        repofilterlist=[reponame]
+    
+    if repofilterlist: 
+        dbg_reponames = []
+        for repo in repos:
+            dbg_reponames.append(repo.name)
+            if repo.name in repofilterlist and hasattr(repo, 'handle'):
+                if not repofilter:
+                    repofilter = pool.Selection()
+                repofilter.add(repo.handle.Selection(solv.Job.SOLVER_SETVENDOR))
+        
+        if not repofilter: 
+            print("no repository matches '%s'" % repofilterlist)
+            print("Possible repo: name values {}".format(','.join(dbg_reponames)))
+            sys.exit(1)
+    return repofilter, pkg
+
 def load_stub(repodata):
     repo = repodata.repo.appdata
     if repo:
@@ -503,28 +526,25 @@ def dir_path(string):
     else:
         raise NotADirectoryError(string)
 
-parser = argparse.ArgumentParser(description="Solv rpm depencies") 
+parser = argparse.ArgumentParser(description="RPM cli dependency solver") 
 parser.add_argument('--repodir', 
                     default='/etc/yum.repos.d/', 
                     type=dir_path, dest='repodir',
                     help='repository directory')
-parser.add_argument('--enablerepo', action="append", 
-                    type=str, help="limit to specified repositories")
-#parser.add_argument('--disablerepo', action="append", 
-#                    type=str, help="limit to specified repositories")
-parser.add_argument('packages', metavar='p', type=str, nargs='+',
-                    help='list of packages to solve')
 parser.add_argument('--basearch', default="x86_64", 
                     type=str, help="Base architecture")
 parser.add_argument('--releasever', default="30", 
                     type=str, help="Release version")
 parser.add_argument('--exportdir', default="./", 
                     type=dir_path, help="Directory to use for data.json export")
+parser.add_argument('--repofilter', action="append",
+                     type=str, help="limit to specified repositories")
+parser.add_argument('packages', type=str, nargs='+',
+                     help='list of packages or solvable glob expression')
 parser.add_argument('--weak', action='store_true', default=False,
-                    help="The solver tries to fulfill weak jobs, " \
-                        "but does not report a problem " \
-                        "if it is not possible to do so.")
-
+                     help="The solver tries to fulfill weak jobs, " \
+                         "but does not report a problem " \
+                         "if it is not possible to do so.")
 
 args = parser.parse_args()
 
@@ -562,19 +582,6 @@ pool.set_loadcallback(load_stub)
 for repo in repos:
     if int(repo['enabled']):
         repo.load(pool)
-    
-repofilter = None
-if args.enablerepo:
-    for reponame in options.repos:
-        mrepos = [ repo for repo in repos if repo.name == reponame ]
-        if not mrepos:
-            print("no repository matches '%s'" % reponame)
-            sys.exit(1)
-        repo = mrepos[0]
-        if hasattr(repo, 'handle'):
-            if not repofilter:
-                repofilter = pool.Selection()
-            repofilter.add(repo.handle.Selection(solv.Job.SOLVER_SETVENDOR))
 
 cmdlinerepo = None
 for arg in args.packages:
@@ -603,6 +610,8 @@ pool.createwhatprovides()
 # convert arguments into jobs
 jobs = []
 for arg in args.packages:
+    repofilter = None
+    repofilter, arg = get_repofilter(repos, arg, args.repofilter)
     flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
     flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
     if len(arg) and arg[0] == '/':
