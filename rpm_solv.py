@@ -8,6 +8,7 @@
 #
 
 import solv
+import sys
 import glob
 import argparse
 import configparser
@@ -19,7 +20,8 @@ from utils.repo import dir_path, \
         load_stub, \
         get_repofilter
 
-from utils.problem import interactive
+from utils.problem import interactive, \
+        rule_solver
 
 #import gc
 #gc.set_debug(gc.DEBUG_LEAK)
@@ -47,7 +49,9 @@ def main():
 
     args = parser.parse_args()
     
-    problems_callback = interactive
+    # problems_callback = interactive
+    problems_callback = rule_solver
+
     # action_solver = solv.Job.SOLVER_DISTUPGRADE
     # action_solver = solv.Job.SOLVER_UPDATE
     # use a fake install to force full rpm depedencies 
@@ -111,7 +115,7 @@ def main():
     jobs = []
     for arg in args.packages:
         repofilter = None
-        repofilter, arg = get_repofilter(repos, arg, args.repofilter)
+        repofilter, arg = get_repofilter(pool, repos, arg, args.repofilter)
         flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
         flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
         if len(arg) and arg[0] == '/':
@@ -226,14 +230,15 @@ def main():
 
     for job in jobs:
         #job.how |= solv.Job.SOLVER_FORCEBEST
-        #job.how |= solv.Job.SOLVER_CLEANDEPS
+        job.how |= solv.Job.SOLVER_CLEANDEPS
         if args.weak:
             job.how |= solv.Job.SOLVER_WEAK
 
     #pool.set_debuglevel(2)
     solver = pool.Solver()
     flags = solv.Solver.SOLVER_FLAG_SPLITPROVIDES \
-        ^ solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
+        | solv.Solver.SOLVER_FLAG_NO_INFARCHCHECK \
+        #| solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
 
     solver.set_flag(flags, 1)
 

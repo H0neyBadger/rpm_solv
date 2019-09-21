@@ -481,7 +481,7 @@ class repo_cmdline(repo_generic):
         self.handle.appdata = self 
         return True
 
-def get_repofilter(repos, pkg='', repofilterlist=None):
+def get_repofilter(pool, repos, pkg='', repofilterlist=None):
     repofilter = None
     if pkg.startswith("repo:"):
         # retrieve custom repo keyword
