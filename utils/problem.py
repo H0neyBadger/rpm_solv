@@ -75,10 +75,10 @@ def rule_solver(jobs, problems):
                         # nothing provides python3.7dist(xmltodict) = 0.11.0 
                         # needed by python3-pyvirtualize-0.9-6.20181003git57d2307.fc30.noarch
                         s = ri.solvable
-                        #remove_solvable_from_jobs(s, jobs)
+                        remove_solvable_from_jobs(s, jobs)
                         #FIXME: keep the solvable in the stack
                         # despite the missing required dependencies
-                        s.unset(solv.SOLVABLE_REQUIRES)
+                        #s.unset(solv.SOLVABLE_REQUIRES)
                         sol = "s"
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_REQUIRES:
@@ -103,6 +103,17 @@ def rule_solver(jobs, problems):
                         # remove conflicts to avoid problems resolution
                         s.unset(solv.SOLVABLE_CONFLICTS)
                         other.unset(solv.SOLVABLE_CONFLICTS)
+                        sol = "s"
+                        break
+                    elif ri.type == solv.Solver.SOLVER_RULE_PKG_OBSOLETES:
+                        print('SOLVER_RULE_PKG_OBSOLETES')
+                        # example
+                        # package infiniband-diags-2.0.0-2.el7.x86_64
+                        # obsoletes libibmad < 2.0.0-2.el7
+                        # provided by libibmad-1.3.13-1.el7.x86_64
+                        other = ri.othersolvable
+                        #s.unset(solv.SOLVABLE_OBSOLETES)
+                        remove_solvable_from_jobs(other, jobs)
                         sol = "s"
                         break
                     else:
@@ -132,6 +143,7 @@ def rule_solver(jobs, problems):
                         if other:
                             other.unset(solv.SOLVABLE_CONFLICTS)
                         sol = 's'
+                        #import pdb; pdb.set_trace()
                     else: 
                         #import pdb; pdb.set_trace()
                         pass
