@@ -9,6 +9,7 @@
 
 import solv
 import sys
+import os
 import glob
 import argparse
 import configparser
