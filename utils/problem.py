@@ -134,7 +134,7 @@ def rule_solver(jobs, problems):
                         sol = 's'
                     else: 
                         #import pdb; pdb.set_trace()
-
+                        pass
             elif rule.type == solv.Solver.SOLVER_RULE_INFARCH:
                 print('SOLVER_RULE_INFARCH')
                 # from libsolv-bindings.txt
