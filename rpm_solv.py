@@ -89,6 +89,7 @@ def main():
             repo.load(pool)
 
     cmdlinerepo = None
+    packages = []
     for arg in args.packages:
         if arg.endswith(".rpm") and os.access(arg, os.R_OK):
             if not cmdlinerepo:
@@ -100,6 +101,16 @@ def main():
                 print(pool.errstr)
                 sys.exit(1)
             cmdlinerepo['packages'][arg] = s
+        elif os.access(arg, os.R_OK):
+            # read a list of packages from file
+            with open(arg, 'r') as f:
+                for a in f.readlines():
+                    # remove comment from line
+                    p = a.strip().split('#')[0]
+                    if p:
+                        packages.append(p)
+        else:
+            packages.append(arg)
 
     if cmdlinerepo:
         cmdlinerepo.handle.internalize()
@@ -114,7 +125,7 @@ def main():
 
     # convert arguments into jobs
     jobs = []
-    for arg in args.packages:
+    for arg in packages:
         repofilter = None
         repofilter, arg = get_repofilter(pool, repos, arg, args.repofilter)
         flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
