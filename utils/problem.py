@@ -88,8 +88,20 @@ def rule_solver(jobs, problems):
                         # requires python3-prelude-correlator >= 5.0.0, 
                         # but none of the providers can be installed
                         s = ri.solvable
-                        # remove solvable from the stack
-                        remove_solvable_from_jobs(s, jobs)
+                        req = ri.solvable.pool.whatprovides(ri.dep)
+                        if req:
+                            # to test with 'php-common-7.3.4-1.fc30.x86_64' 'php-7.3.9-1.fc30.x86_64' 
+                            #sel = s.pool.matchdepid(ri.dep, flags, keyname)
+                            sel = s.pool.matchdepid(ri.dep, solv.Selection.SELECTION_PROVIDES, solv.SOLVABLE_PROVIDES)
+                            # duplicated package, 
+                            # the SOLVER_RULE_PKG_SAME_NAME will handle
+                            # the issue later
+                            print('Add selection {} to current jobs list'.format(sel))
+                            jobs += sel.jobs(solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED)
+                        else:
+                            # remove solvable from the stack
+                            #import pdb; pdb.set_trace()
+                            remove_solvable_from_jobs(s, jobs)
                         sol = "s"
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
