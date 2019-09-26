@@ -45,17 +45,17 @@ def rule_solver(jobs, problems):
     for problem in problems:
         print("Problem %d/%d:" % (problem.id, len(problems)))
         print(problem)
-        solutions = problem.solutions()
-        rules = problem.findallproblemrules()
-        sol = ''
+        #rules = problem.findallproblemrules()
+        # read the first problem rule
+        rules = (problem.findproblemrule(),)
         for rule in rules: 
             #print(rule.type)
             rule_all_infos = rule.allinfos()
             if rule.type == solv.Solver.SOLVER_RULE_PKG:
                 # A package dependency rule.
-                print('SOLVER_RULE_PKG package dependency rule.')
+                #print('SOLVER_RULE_PKG package dependency rule.')
                 for ri in rule_all_infos:
-                    print(ri.problemstr())
+                    #print(ri.problemstr())
                     if ri.type == solv.Solver.SOLVER_RULE_PKG_SAME_NAME:
                         print("SOLVER_RULE_PKG_SAME_NAME")
                         other = ri.othersolvable
@@ -67,7 +67,6 @@ def rule_solver(jobs, problems):
                             td = s
                         print("remove {}".format(td))
                         remove_solvable_from_jobs(td, jobs)
-                        sol = "s"
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP:
                         print("SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP")
@@ -79,7 +78,6 @@ def rule_solver(jobs, problems):
                         #FIXME: keep the solvable in the stack
                         # despite the missing required dependencies
                         #s.unset(solv.SOLVABLE_REQUIRES)
-                        sol = "s"
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_REQUIRES:
                         print('SOLVER_RULE_PKG_REQUIRES') 
@@ -102,7 +100,6 @@ def rule_solver(jobs, problems):
                             # remove solvable from the stack
                             #import pdb; pdb.set_trace()
                             remove_solvable_from_jobs(s, jobs)
-                        sol = "s"
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 
@@ -115,7 +112,6 @@ def rule_solver(jobs, problems):
                         # remove conflicts to avoid problems resolution
                         s.unset(solv.SOLVABLE_CONFLICTS)
                         other.unset(solv.SOLVABLE_CONFLICTS)
-                        sol = "s"
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_OBSOLETES:
                         print('SOLVER_RULE_PKG_OBSOLETES')
@@ -126,7 +122,6 @@ def rule_solver(jobs, problems):
                         other = ri.othersolvable
                         #s.unset(solv.SOLVABLE_OBSOLETES)
                         remove_solvable_from_jobs(other, jobs)
-                        sol = "s"
                         break
                     else:
                         print('uknown rule info {}'.format(ri.type))
@@ -135,30 +130,8 @@ def rule_solver(jobs, problems):
                 else:
                     # for allinfos loop
                     print('Problem allinfos not found')
-                    if rule.info().type == solv.Solver.SOLVER_RULE_PKG and len(problem.solutions()) == 1:
-                        # example:
-                        # package prelude-correlator-5.0.1-1.fc30.x86_64 
-                        # requires python3-prelude-correlator >= 5.0.0, 
-                        # but none of the providers can be installed
-                        
-                        # only one solution exists
-                        sol = '1'
-                    elif rule.info().type == solv.Solver.SOLVER_RULE_PKG:
-                        # expample:
-                        # package compat-openssl10-pkcs11-helper-devel-1.22-8.fc30.i686 
-                        # conflicts with pkcs11-helper-devel 
-                        # provided by pkcs11-helper-devel-1.22-7.fc30.i686
-                        s = rule.info().solvable
-                        other = rule.info().othersolvable
-                        # remove conflicts to avoid problems resolution
-                        s.unset(solv.SOLVABLE_CONFLICTS)
-                        if other:
-                            other.unset(solv.SOLVABLE_CONFLICTS)
-                        sol = 's'
-                        #import pdb; pdb.set_trace()
-                    else: 
-                        #import pdb; pdb.set_trace()
-                        pass
+                    #import pdb; pdb.set_trace()
+                    exit()
             elif rule.type == solv.Solver.SOLVER_RULE_INFARCH:
                 print('SOLVER_RULE_INFARCH')
                 # from libsolv-bindings.txt
@@ -171,33 +144,8 @@ def rule_solver(jobs, problems):
                 print(rule.info().problemstr())
                 s = rule.info().solvable
                 remove_solvable_from_jobs(s, jobs)
-                sol = "s"
             else: 
                 print('uknown rule {}'.format(rule.type))
-                sol = ''
                 #import pdb; pdb.set_trace()
-                #exit()
-
-        for solution in solutions:
-            print("  Solution %d:" % solution.id)
-            elements = solution.elements(True)
-            for element in elements:
-                print("  - %s" % element.str())
-            print('')
-        while not (sol == 's' or sol == 'q' or (sol.isdigit() and int(sol) >= 1 and int(sol) <= len(solutions))):
-            sys.stdout.write("Please choose a solution: ")
-            sys.stdout.flush()
-            sol = sys.stdin.readline().strip()
-        if sol == 's':
-            continue        # skip problem
-        if sol == 'q':
-            sys.exit(1)
-        solution = solutions[int(sol) - 1]
-        for element in solution.elements():
-            newjob = element.Job()
-            if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
-                jobs[element.jobidx] = newjob
-            else:
-                if newjob and newjob not in jobs:
-                    jobs.append(newjob)
+                exit()
 
