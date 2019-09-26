@@ -183,9 +183,14 @@ def main():
             d = data.get(na,{})
             data[na] = d
             other = d.get('solvable', None)
+            other_job = d.get('job', None)
             # keep the latest solvable 
             if not other or s.evrcmp(other) == 1:
                 d['solvable'] = s
+                d['job'] = job
+                if other_job and other_job in jobs:
+                    # remove solvable from job
+                    jobs.remove(other_job)
 
             # read UPDATE_COLLECTION to add advisories packages
             # to the solver process 
@@ -218,14 +223,20 @@ def main():
                         "patchcategory": str_patchcategory,
                         "buildtime": num_buildtime,
                     }
+                    advisories.append(adv)
+                    cj = sel.jobs(action_solver | solv.Job.SOLVER_TARGETED)
                     other = d.get('solvable', None)
+                    other_job = d.get('job', None)
+
                     # keep the latest solvable 
                     if not other or cs.evrcmp(other) == 1:
                         d['solvable'] = cs
+                        d['job'] = cj
+                        jobs += cj
+                        if other_job and other_job in jobs:
+                            # remove solvable from job
+                            jobs.remove(other_job)
 
-                    advisories.append(adv)
-                    jobs += sel.jobs(action_solver | solv.Job.SOLVER_TARGETED)
-            
             print('')
 
     jobs = []
@@ -340,6 +351,7 @@ def main():
     # remove solvable data
     for key, val in data.items():
         s = val.pop('solvable', None)
+        s = val.pop('job', None)
 
     with open('{}/data.json'.format(args.exportdir), 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
