@@ -27,6 +27,79 @@ from utils.problem import interactive, \
 #import gc
 #gc.set_debug(gc.DEBUG_LEAK)
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def add_solvable_to_stack(solvable, data):
+    """
+    Add to data dict object
+    if two solable with the same name.arch are provided
+    we keep la most recent one to avoid conflicts.
+    """
+    print("Name:        %s" % solvable)
+    print("Repo:        %s" % solvable.repo)
+    print("Summary:     %s" % solvable.lookup_str(solv.SOLVABLE_SUMMARY))
+    str_url = solvable.lookup_str(solv.SOLVABLE_URL)
+    if str_url:
+        print("Url:         %s" % str_url)
+    str_license = solvable.lookup_str(solv.SOLVABLE_LICENSE)
+    if str_license:
+        print("License:     %s" % str_license)
+    print("Description:\n%s" % solvable.lookup_str(solv.SOLVABLE_DESCRIPTION))
+    
+    str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
+    str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
+    str_patchcategory = solvable.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
+    str_severity = solvable.lookup_str(solv.UPDATE_SEVERITY)
+    str_reboot = solvable.lookup_str(solv.UPDATE_REBOOT)
+    num_buildtime = solvable.lookup_num(solv.SOLVABLE_BUILDTIME)
+    
+    # keep the latest version of each 
+    # package in data
+    na = "{}.{}".format(str_name, str_arch)
+    d = data.get(na,{})
+    data[na] = d
+    other = d.get('solvable', None)
+    # keep the latest solvable 
+    if not other or solvable.evrcmp(other) == 1:
+        d['solvable'] = solvable
+
+    # read UPDATE_COLLECTION to add advisories packages
+    # to the solver process 
+    pack = solvable.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
+    pack.prepend_keyname(solv.UPDATE_COLLECTION)
+    for p in pack:
+        pos = p.parentpos()
+        str_col_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
+        str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
+        str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
+        #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
+        nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
+        sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
+        for cs in sel.solvables():
+            #print("collection: {}".format(nevra))
+            # update or insert errata in packages list
+            str_col_name = cs.lookup_str(solv.SOLVABLE_NAME)
+            str_col_arch = cs.lookup_str(solv.SOLVABLE_ARCH) 
+            na = "{}.{}".format(str_col_name, str_col_arch)
+            d = data.get(na,{})
+            data[na] = d
+            advisories = d.get('advisories',[])
+            d['advisories'] = advisories
+            
+            adv = {
+                "name": str_name,
+                "severity": str_severity,
+                "patchcategory": str_patchcategory,
+                "buildtime": num_buildtime,
+            }
+            advisories.append(adv)
+            add_solvable_to_stack(cs, data)
+    print('')
+
+
 def main():
     parser = argparse.ArgumentParser(description="RPM cli dependency solver") 
     parser.add_argument('--repodir', 
@@ -87,6 +160,14 @@ def main():
     for repo in repos:
         if int(repo['enabled']):
             repo.load(pool)
+    
+    # FIXME: workaroud to have less 
+    # confict to solve 
+    # this helps to keep as much packages
+    # as possible in the data.json
+    for s in pool.solvables:
+        s.unset(solv.SOLVABLE_CONFLICTS)
+        s.unset(solv.SOLVABLE_OBSOLETES)
 
     cmdlinerepo = None
     packages = []
@@ -159,85 +240,7 @@ def main():
 
     for job in jobs:
         for s in job.solvables():
-            print("Name:        %s" % s)
-            print("Repo:        %s" % s.repo)
-            print("Summary:     %s" % s.lookup_str(solv.SOLVABLE_SUMMARY))
-            str_url = s.lookup_str(solv.SOLVABLE_URL)
-            if str_url:
-                print("Url:         %s" % str_url)
-            str_license = s.lookup_str(solv.SOLVABLE_LICENSE)
-            if str_license:
-                print("License:     %s" % str_license)
-            print("Description:\n%s" % s.lookup_str(solv.SOLVABLE_DESCRIPTION))
-            
-            str_name = s.lookup_str(solv.SOLVABLE_NAME)
-            str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
-            str_patchcategory = s.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
-            str_severity = s.lookup_str(solv.UPDATE_SEVERITY)
-            str_reboot = s.lookup_str(solv.UPDATE_REBOOT)
-            num_buildtime = s.lookup_num(solv.SOLVABLE_BUILDTIME)
-            
-            # keep the latest version of each 
-            # duplicated packages in jobs
-            na = "{}.{}".format(str_name, str_arch)
-            d = data.get(na,{})
-            data[na] = d
-            other = d.get('solvable', None)
-            other_job = d.get('job', None)
-            # keep the latest solvable 
-            if not other or s.evrcmp(other) == 1:
-                d['solvable'] = s
-                d['job'] = job
-                if other_job and other_job in jobs:
-                    # remove solvable from job
-                    jobs.remove(other_job)
-
-            # read UPDATE_COLLECTION to add advisories packages
-            # to the solver process 
-            pack = s.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
-            # remove conflicts to avoid problems resolution
-            s.unset(solv.SOLVABLE_CONFLICTS)
-            pack.prepend_keyname(solv.UPDATE_COLLECTION)
-            for p in pack:
-                pos = p.parentpos()
-                str_col_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
-                str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
-                str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
-                #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
-                nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
-                sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
-                for cs in sel.solvables():
-                    #print("collection: {}".format(nevra))
-                    # update or insert errata in packages list
-                    str_col_name = cs.lookup_str(solv.SOLVABLE_NAME)
-                    str_col_arch = cs.lookup_str(solv.SOLVABLE_ARCH) 
-                    na = "{}.{}".format(str_col_name, str_col_arch)
-                    d = data.get(na,{})
-                    data[na] = d
-                    advisories = d.get('advisories',[])
-                    d['advisories'] = advisories
-                    
-                    adv = {
-                        "name": str_name,
-                        "severity": str_severity,
-                        "patchcategory": str_patchcategory,
-                        "buildtime": num_buildtime,
-                    }
-                    advisories.append(adv)
-                    cj = sel.jobs(action_solver | solv.Job.SOLVER_TARGETED)
-                    other = d.get('solvable', None)
-                    other_job = d.get('job', None)
-
-                    # keep the latest solvable 
-                    if not other or cs.evrcmp(other) == 1:
-                        d['solvable'] = cs
-                        d['job'] = cj
-                        jobs += cj
-                        if other_job and other_job in jobs:
-                            # remove solvable from job
-                            jobs.remove(other_job)
-
-            print('')
+           add_solvable_to_stack(s, data)
 
     jobs = []
     # rebuild jobs from filtered unique data
@@ -250,6 +253,8 @@ def main():
             nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
             sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
             jobs += sel.jobs(action_solver)
+            #jobs +=sel.jobs(action_solver)
+
 
     for job in jobs:
         #job.how |= solv.Job.SOLVER_FORCEBEST

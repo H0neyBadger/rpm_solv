@@ -33,15 +33,39 @@ def interactive(jobs, problems):
                 if newjob and newjob not in jobs:
                     jobs.append(newjob)
 
+def exec_solution(solution, jobs):
+
+    for element in solution.elements():
+        print(element.str())
+        newjob = element.Job()
+        if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
+            jobs[element.jobidx] = newjob
+        else:
+            if newjob and newjob not in jobs:
+                jobs.append(newjob)
+
+
+
 def remove_solvable_from_jobs(solvable, jobs):
+    found = False
+    print('Searching solvable: {} in jobs'.format(solvable))
     for job in jobs:
-        if solvable in job.solvables(): 
-            jobs.remove(job)
+        if solvable in job.solvables():
+            print('Remove {} from job {}'.format(solvable, job))
+            # do not realy remove the job 
+            # to keep valid element.jobidx 
+            # for solutions
+            job.how = solv.Job.SOLVER_NOOP
+            #jobs.remove(job)
+            found = True
+            break
+    return found
 
 def rule_solver(jobs, problems):
     """
     Solve problems manually from console interactive prompt
     """
+    import time
     for problem in problems:
         print("Problem %d/%d:" % (problem.id, len(problems)))
         print(problem)
@@ -65,7 +89,6 @@ def rule_solver(jobs, problems):
                             td = other
                         else:
                             td = s
-                        print("remove {}".format(td))
                         remove_solvable_from_jobs(td, jobs)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP:
@@ -74,10 +97,11 @@ def rule_solver(jobs, problems):
                         # nothing provides python3.7dist(xmltodict) = 0.11.0 
                         # needed by python3-pyvirtualize-0.9-6.20181003git57d2307.fc30.noarch
                         s = ri.solvable
-                        remove_solvable_from_jobs(s, jobs)
-                        #FIXME: keep the solvable in the stack
-                        # despite the missing required dependencies
-                        #s.unset(solv.SOLVABLE_REQUIRES)
+                        found = remove_solvable_from_jobs(s, jobs)
+                        if not found: 
+                            # solution is slower than remove
+                            exec_solution(problem.solutions()[0], jobs)
+                            #s.unset(solv.SOLVABLE_REQUIRES)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_REQUIRES:
                         print('SOLVER_RULE_PKG_REQUIRES') 
@@ -85,17 +109,24 @@ def rule_solver(jobs, problems):
                         # package prelude-correlator-5.0.1-1.fc30.x86_64 
                         # requires python3-prelude-correlator >= 5.0.0, 
                         # but none of the providers can be installed
+                        interactive(jobs, [problem,])
+                        break
                         s = ri.solvable
                         req = ri.solvable.pool.whatprovides(ri.dep)
                         if req:
-                            # to test with 'php-common-7.3.4-1.fc30.x86_64' 'php-7.3.9-1.fc30.x86_64' 
-                            #sel = s.pool.matchdepid(ri.dep, flags, keyname)
-                            sel = s.pool.matchdepid(ri.dep, solv.Selection.SELECTION_PROVIDES, solv.SOLVABLE_PROVIDES)
-                            # duplicated package, 
-                            # the SOLVER_RULE_PKG_SAME_NAME will handle
-                            # the issue later
-                            print('Add selection {} to current jobs list'.format(sel))
-                            jobs += sel.jobs(solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED)
+                            for j in jobs:
+                                # avoid solvable / job duplication
+                                if req[0] in j.solvables():
+                                    break
+                            else: 
+                                # to test with 'php-common-7.3.4-1.fc30.x86_64' 'php-7.3.9-1.fc30.x86_64' 
+                                #sel = s.pool.matchdepid(ri.dep, flags, keyname)
+                                sel = s.pool.matchdepid(ri.dep, solv.Selection.SELECTION_PROVIDES, solv.SOLVABLE_PROVIDES)
+                                # duplicated package, 
+                                # the SOLVER_RULE_PKG_SAME_NAME will handle
+                                # the issue later
+                                print('Add selection {} to current jobs list'.format(sel))
+                                jobs += sel.jobs(solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED)
                         else:
                             # remove solvable from the stack
                             #import pdb; pdb.set_trace()
@@ -126,12 +157,12 @@ def rule_solver(jobs, problems):
                     else:
                         print('uknown rule info {}'.format(ri.type))
                         #import pdb; pdb.set_trace()
-                        exit()
+                        exit(1)
                 else:
                     # for allinfos loop
                     print('Problem allinfos not found')
-                    #import pdb; pdb.set_trace()
-                    exit()
+                    import pdb; pdb.set_trace()
+                    exit(1)
             elif rule.type == solv.Solver.SOLVER_RULE_INFARCH:
                 print('SOLVER_RULE_INFARCH')
                 # from libsolv-bindings.txt
@@ -147,5 +178,5 @@ def rule_solver(jobs, problems):
             else: 
                 print('uknown rule {}'.format(rule.type))
                 #import pdb; pdb.set_trace()
-                exit()
+                exit(1)
 
