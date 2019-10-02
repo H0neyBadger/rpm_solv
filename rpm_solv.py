@@ -18,10 +18,11 @@ import json
 
 from collections import OrderedDict
 
+from utils.job import JobSolver
+
 from utils.repo import dir_path, \
         repo_repomd, \
-        load_stub, \
-        get_repofilter
+        load_stub
 
 from utils.problem import interactive, \
         rule_solver
@@ -32,102 +33,6 @@ from utils.problem import interactive, \
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def add_solvable_to_stack(solvable, data):
-    """
-    Add to data dict object
-    if two solable with the same name.arch are provided
-    we keep la most recent one to avoid conflicts.
-    """
-    print("Name:        %s" % solvable)
-    print("Repo:        %s" % solvable.repo)
-    print("Summary:     %s" % solvable.lookup_str(solv.SOLVABLE_SUMMARY))
-    str_url = solvable.lookup_str(solv.SOLVABLE_URL)
-    if str_url:
-        print("Url:         %s" % str_url)
-    str_license = solvable.lookup_str(solv.SOLVABLE_LICENSE)
-    if str_license:
-        print("License:     %s" % str_license)
-    print("Description:\n%s" % solvable.lookup_str(solv.SOLVABLE_DESCRIPTION))
-    
-    str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
-    str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
-    str_patchcategory = solvable.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
-
-    str_severity = solvable.lookup_str(solv.UPDATE_SEVERITY)
-    str_reboot = solvable.lookup_str(solv.UPDATE_REBOOT)
-    num_buildtime = solvable.lookup_num(solv.SOLVABLE_BUILDTIME)
-    
-    # keep the latest version of each 
-    # package in data
-    na = "{}.{}".format(str_name, str_arch)
-    d = data.get(na,{})
-    data[na] = d
-    other = d.get('solvable', None)
-    # keep the latest solvable 
-    if not other or solvable.evrcmp(other) == 1:
-        d['solvable'] = solvable
-
-    # read reference
-    pack = solvable.Dataiterator(solv.UPDATE_REFERENCE_ID, '*', solv.Dataiterator.SEARCH_GLOB)
-    pack.prepend_keyname(solv.UPDATE_REFERENCE)
-    references = []
-    for p in pack: 
-        pos = p.parentpos()
-        str_reference_id = pos.lookup_str(solv.UPDATE_REFERENCE_ID)
-        str_reference_title = pos.lookup_str(solv.UPDATE_REFERENCE_TITLE)
-        str_reference_href = pos.lookup_str(solv.UPDATE_REFERENCE_HREF)
-        str_reference_type = pos.lookup_str(solv.UPDATE_REFERENCE_TYPE)
-        references.append(
-            OrderedDict((
-                ("references", str_reference_id),
-                ("reference_title", str_reference_title),
-                ("reference_href", str_reference_href),
-                ("reference_type", str_reference_type),
-            ))
-        )
-
-    # read UPDATE_COLLECTION to add advisories packages
-    # to the solver process 
-    pack = solvable.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
-    pack.prepend_keyname(solv.UPDATE_COLLECTION)
-    col_ids = []
-    for p in pack:
-        pos = p.parentpos()
-        str_col_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
-        str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
-        str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
-        #str_col_filename = pos.lookup_str(solv.UPDATE_COLLECTION_FILENAME)
-        #col_flags = pos.lookup_str(solv.UPDATE_COLLECTION_FLAGS)
-        #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
-        nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
-        sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
-        for cs in sel.solvables():
-            #print("collection: {}".format(nevra))
-            # update or insert errata in packages list
-            str_col_name = cs.lookup_str(solv.SOLVABLE_NAME)
-            str_col_arch = cs.lookup_str(solv.SOLVABLE_ARCH) 
-            na = "{}.{}".format(str_col_name, str_col_arch)
-            d = data.get(na,{})
-            data[na] = d
-            advisories = d.get('advisories',[])
-            d['advisories'] = advisories
-            
-            names = [o['name'] for o in advisories] 
-            if str_name not in names: 
-                # keep a list of unique advisories
-                adv = OrderedDict((
-                    ("name", str_name),
-                    ("severity", str_severity),
-                    ("patchcategory", str_patchcategory),
-                    ("buildtime", num_buildtime),
-                    ("references", references),
-                ))
-                
-                advisories.append(adv)
-            add_solvable_to_stack(cs, data)
-    print('')
 
 
 def main():
@@ -142,8 +47,6 @@ def main():
                         type=str, help="Release version")
     parser.add_argument('--exportdir', default="./", 
                         type=dir_path, help="Directory to use for data.json export")
-    parser.add_argument('--repofilter', action="append",
-                         type=str, help="limit to specified repositories")
     parser.add_argument('packages', type=str, nargs='+',
                          help='list of packages or solvable glob expression')
     parser.add_argument('--weak', action='store_true', default=False,
@@ -235,57 +138,13 @@ def main():
     pool.createwhatprovides()
 
     # convert arguments into jobs
-    jobs = []
-    for arg in packages:
-        repofilter = None
-        repofilter, arg = get_repofilter(pool, repos, arg, args.repofilter)
-        flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
-        flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
-        if len(arg) and arg[0] == '/':
-            flags |= solv.Selection.SELECTION_FILELIST
-        sel = pool.select(arg, flags)
-        if repofilter:
-           sel.filter(repofilter)
-        if sel.isempty():
-            sel = pool.select(arg, flags | solv.Selection.SELECTION_NOCASE)
-            if repofilter:
-               sel.filter(repofilter)
-            if not sel.isempty():
-                print("[ignoring case for '%s']" % arg)
-        if sel.isempty():
-            print("nothing matches '%s'" % arg)
-            sys.exit(1)
-        if sel.flags & solv.Selection.SELECTION_FILELIST:
-            print("[using file list match for '%s']" % arg)
-        if sel.flags & solv.Selection.SELECTION_PROVIDES:
-            print("[using capability match for '%s']" % arg)
-        jobs += sel.jobs(action_solver)
-
+    js = JobSolver(pool, repos, action_solver)
+    jobs = js.get_jobs_from_packages(packages) 
+    
     if not jobs:
         print("no package matched.")
         sys.exit(1)
-
-    # returned data
-    data={}
-
-    for job in jobs:
-        for s in job.solvables():
-           add_solvable_to_stack(s, data)
-
-    jobs = []
-    # rebuild jobs from filtered unique data
-    for key, val in data.items():
-        s = val.get('solvable') 
-        if s:
-            str_evr = s.lookup_str(solv.SOLVABLE_EVR)
-            str_name = s.lookup_str(solv.SOLVABLE_NAME)
-            str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
-            nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
-            sel = pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
-            jobs += sel.jobs(action_solver)
-            #jobs +=sel.jobs(action_solver)
-
-
+    
     for job in jobs:
         #job.how |= solv.Job.SOLVER_FORCEBEST
         job.how |= solv.Job.SOLVER_CLEANDEPS
@@ -312,6 +171,7 @@ def main():
     if trans.isempty():
         print("Nothing to do.")
         sys.exit(0)
+    data = {}
     print('')
     print("Transaction summary:")
     print('')
@@ -344,7 +204,6 @@ def main():
             nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
             # update or insert errata in packages list
             na = "{}.{}".format(str_name, str_arch)
-            old_data = data.get(na,{})
             d = OrderedDict((
                 ('nevra', nevra),
                 ('name', str_name),
@@ -353,6 +212,7 @@ def main():
                 ('repo', str(p.repo)),
                 ('buildtime', num_buildtime),
             ))
+            data[na] = d
             # 1:3.0.12-17.el7
             ma = evr_re.match(str_evr)
             if ma is not None: 
@@ -369,10 +229,7 @@ def main():
             else: 
                 frmt_str = '{epoch}:{name}-{version}.{arch}'
             d['envra'] = frmt_str.format(**d)
-            adv = old_data.get('advisories', None)
-            if adv is not None:
-                d['advisories'] = old_data.get('advisories', [])
-            data[na] = d
+
             if cl.type == solv.Transaction.SOLVER_TRANSACTION_UPGRADED or cl.type == solv.Transaction.SOLVER_TRANSACTION_DOWNGRADED:
                 op = trans.othersolvable(p)
                 print("  - %s -> %s" % (p, op))

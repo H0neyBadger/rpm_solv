@@ -481,29 +481,6 @@ class repo_cmdline(repo_generic):
         self.handle.appdata = self 
         return True
 
-def get_repofilter(pool, repos, pkg='', repofilterlist=None):
-    repofilter = None
-    if pkg.startswith("repo:"):
-        # retrieve custom repo keyword
-        # repo:foo:*
-        keyword, reponame, pkg = pkg.split(':', 2)
-        repofilterlist=[reponame]
-    
-    if repofilterlist: 
-        dbg_reponames = []
-        for repo in repos:
-            dbg_reponames.append(repo.name)
-            if repo.name in repofilterlist and hasattr(repo, 'handle'):
-                if not repofilter:
-                    repofilter = pool.Selection()
-                repofilter.add(repo.handle.Selection(solv.Job.SOLVER_SETVENDOR))
-        
-        if not repofilter: 
-            print("no repository matches '%s'" % repofilterlist)
-            print("Possible repo: name values {}".format(','.join(dbg_reponames)))
-            sys.exit(1)
-    return repofilter, pkg
-
 def load_stub(repodata):
     repo = repodata.repo.appdata
     if repo:

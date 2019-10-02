@@ -30,11 +30,9 @@ cat ./data.json
     'patch:*'
 
 # Solve 'patch:*' from the 'updates' repository
-# And solve '*' from the 'fedora' repo using the repofilter arg
 ./rpm_solv.py \ 
     'repo:updates:patch:*' \
     '*' \
-    --repofilter=fedora \
     --weak
 
 ```
