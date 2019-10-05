@@ -16,7 +16,6 @@ import configparser
 import re
 import json
 
-from collections import OrderedDict
 
 from utils.job import JobSolver
 
@@ -26,6 +25,8 @@ from utils.repo import dir_path, \
 
 from utils.problem import interactive, \
         rule_solver
+
+from utils.format import data_json 
 
 #import gc
 #gc.set_debug(gc.DEBUG_LEAK)
@@ -58,6 +59,7 @@ def main():
     
     # problems_callback = interactive
     problems_callback = rule_solver
+    data_writer = data_json
 
     # action_solver = solv.Job.SOLVER_DISTUPGRADE
     # action_solver = solv.Job.SOLVER_UPDATE
@@ -171,7 +173,7 @@ def main():
     if trans.isempty():
         print("Nothing to do.")
         sys.exit(0)
-    data = {}
+    
     print('')
     print("Transaction summary:")
     print('')
@@ -194,49 +196,10 @@ def main():
             print("%d arch changes from '%s' to '%s':" % (cl.count, cl.fromstr, cl.tostr))
         else:
             continue
-        evr_re = re.compile('^(?:(?P<epoch>\d+):)?(?P<version>.*?)(?:\.(?P<release>\w+))?$')
-        for p in cl.solvables():
-            str_name = p.lookup_str(solv.SOLVABLE_NAME)
-            str_arch = p.lookup_str(solv.SOLVABLE_ARCH)
-            str_evr = p.lookup_str(solv.SOLVABLE_EVR)
-            num_buildtime = p.lookup_num(solv.SOLVABLE_BUILDTIME)
-
-            nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
-            # update or insert errata in packages list
-            na = "{}.{}".format(str_name, str_arch)
-            d = OrderedDict((
-                ('nevra', nevra),
-                ('name', str_name),
-                ('evr', str_evr),
-                ('arch', str_arch),
-                ('repo', str(p.repo)),
-                ('buildtime', num_buildtime),
-            ))
-            data[na] = d
-            # 1:3.0.12-17.el7
-            ma = evr_re.match(str_evr)
-            if ma is not None: 
-                md = ma.groupdict()
-                e = md['epoch']
-                if not e:
-                    d['epoch'] = '0'
-                else :
-                    d['epoch'] = e
-                d['version'] = ma['version']
-                d['release'] = ma['release']
-            if d['release']:
-                frmt_str = '{epoch}:{name}-{version}.{release}.{arch}'
-            else: 
-                frmt_str = '{epoch}:{name}-{version}.{arch}'
-            d['envra'] = frmt_str.format(**d)
-
-            if cl.type == solv.Transaction.SOLVER_TRANSACTION_UPGRADED or cl.type == solv.Transaction.SOLVER_TRANSACTION_DOWNGRADED:
-                op = trans.othersolvable(p)
-                print("  - %s -> %s" % (p, op))
-            else:
-                print("  - %s" % p)
-        print('')
-    print("install size change: %d K" % trans.calc_installsizechange())
+        
+        dw = data_writer()
+        data = dw.format(cl.solvables())
+        print("install size change: %d K" % trans.calc_installsizechange())
 
     # remove empty data
     for key in data.copy().keys():
@@ -250,11 +213,7 @@ def main():
         s = val.pop('job', None)
 
     with open('{}/data.json'.format(args.exportdir), 'w', encoding='utf-8') as f:
-        # sort data's packages name 
-        # the sort is just to ease human reading 
-        # and/or diff comparison
-        odata = OrderedDict(sorted(data.items()))
-        json.dump(odata, f, ensure_ascii=False, indent=4)
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 if __name__== "__main__":
     main()
