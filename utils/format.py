@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 class data_json(object):
 
+    def __init__(self, pool):
+        self.pool = pool
+
     def get_references(self, solvable, references):
         """
         Read references
@@ -37,6 +40,7 @@ class data_json(object):
         Read errata/advisory info
         i.e: severity, name ...
         """
+
         str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
         str_patchcategory = solvable.lookup_str(solv.SOLVABLE_PATCHCATEGORY)
         str_severity = solvable.lookup_str(solv.UPDATE_SEVERITY)
@@ -56,10 +60,39 @@ class data_json(object):
                 ("references", references), 
             ))
         )
+    
+    def build_updateinfo_stack(self, data, sel):
+        """
+        Iterate over selected item
+        to retrieve update infos
+        """
+        for solvable in sel.solvables():
+            logger.info("Retrieve update info for : {}".format(solvable))
+            #import pdb; pdb.set_trace()
+            # solvable is newer than other
+            str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
+            str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
+            str_evr = solvable.lookup_str(solv.SOLVABLE_EVR)
+            nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
+            # update or insert errata in packages list
+            na = "{}.{}".format(str_name, str_arch)
+            d = data[na]
+            updateinfos = d.get('updateinfos', [])
+            d["updateinfos"] = updateinfos
+            logger.info("read nevra {}".format(nevra))
+            uc_pack = solvable.pool.Dataiterator(solv.UPDATE_COLLECTION_FILENAME, nevra + '.rpm', solv.Dataiterator.SEARCH_STRING)
+            uc_pack.prepend_keyname(solv.UPDATE_COLLECTION)
+            for uc_p in uc_pack:
+                advisory = uc_p.solvable
+                self.get_updateinfo(advisory, updateinfos)
 
 
-    def format(self, solvables):
+    def format(self, solvables, updateinfo=True):
         evr_re = re.compile('^(?:(?P<epoch>\d+):)?(?P<version>.*?)(?:\.(?P<release>\w+))?$')
+        # create an empty selection to read 
+        # update information from repo
+        updateinfo_sel = None
+        flags = solv.Selection.SELECTION_NAME | solv.Selection.SELECTION_DOTARCH | solv.Selection.SELECTION_REL
         data = {}
         for s in solvables:
             str_name = s.lookup_str(solv.SOLVABLE_NAME)
@@ -96,23 +129,17 @@ class data_json(object):
                 frmt_str = '{epoch}:{name}-{version}.{arch}'
             d['envra'] = frmt_str.format(**d)
             updateinfos = [] 
-            # read all related packages
-            sel = s.pool.select(na, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME)
-            for other in sel.solvables():
-                if other.evrcmp(s) < 1:
-                    logger.info("Retrieve update info for : {}".format(other))
-                    # solvable is newer than other
-                    o_str_name = other.lookup_str(solv.SOLVABLE_NAME)
-                    o_str_arch = other.lookup_str(solv.SOLVABLE_ARCH)
-                    o_str_evr = other.lookup_str(solv.SOLVABLE_EVR)
-                    o_nevra = "{}-{}.{}".format(o_str_name, o_str_evr, o_str_arch)
-                    uc_pack = s.pool.Dataiterator(solv.UPDATE_COLLECTION_FILENAME, o_nevra + '.rpm', solv.Dataiterator.SEARCH_GLOB)
-                    uc_pack.prepend_keyname(solv.UPDATE_COLLECTION)
-                    for uc_p in uc_pack:
-                        advisory = uc_p.solvable
-                        self.get_updateinfo(advisory, updateinfos)
-            d["updateinfos"] = updateinfos
+            # read all <= related packages
+            rel_query = "{}<={}".format(na, str_evr)
+            if updateinfo_sel is None:
+                updateinfo_sel = s.pool.select(rel_query, flags)
+            else: 
+                updateinfo_sel.add(s.pool.select(rel_query, flags))
             print("  - %s" % s)
+        
+        if updateinfo and updateinfo_sel:
+            self.build_updateinfo_stack(data, updateinfo_sel)
+
         # sort data's packages name
         # the sort is just to ease human reading
         # and/or diff comparison

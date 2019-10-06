@@ -197,18 +197,11 @@ def main():
         else:
             continue
         
-        dw = data_writer()
+        dw = data_writer(pool)
         data = dw.format(cl.solvables())
         print("install size change: %d K" % trans.calc_installsizechange())
 
-    # remove empty data
-    for key in data.copy().keys():
-        n = data[key].get('name', None)
-        if not n:
-            del data[key]
-
-    # remove solvable data
-    for key, val in data.items():
+    for key, val in {}.items():
         s = val.pop('solvable', None)
         s = val.pop('job', None)
 
