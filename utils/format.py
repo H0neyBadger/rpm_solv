@@ -115,7 +115,10 @@ class data_json(object):
                         #import pdb; pdb.set_trace()
                     else: 
                         logger.info("Retrieve update info from cache for : {}, {}".format(solvable, str_col_filename))
-                    updateinfos.append(info)
+                    
+                    if info not in updateinfos: 
+                        updateinfos.append(info)
+
             
             print('Stats : {}/{} {:.1%}, step: {}, ratio: {}'.format(x, rpm_list_len, x/rpm_list_len, step, (time()-tbase)/step))
 
