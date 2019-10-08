@@ -26,28 +26,30 @@ class JobSolver(object):
                 str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
                 na = "{}.{}".format(str_name, str_arch)
                 d = self.patch_stack.get(na, {})
-                other = d.get('solvable', None)
-                logger.info("Conpare update's evr solvable: `{}` other: `{}`".format(solvable, other))
-                if not other:
-                    d['jobs'] = jobs
-                    d['solvable'] = solvable
-                elif other == solvable:
-                    continue
-                elif solvable.evrcmp(other) == 1:
-                    logger.info("Keep `{}`".format(solvable))
-                    other_job = d['jobs']
-                    for job in other_job:
-                        # nullify other job
-                        job.how = solv.Job.SOLVER_NOOP
-                    d['jobs'] = jobs
-                    d['solvable'] = solvable
-                else:
-                    for job in jobs:
-                        # a better version already exists 
-                        # in our stack
-                        job.how = solv.Job.SOLVER_NOOP
                 self.patch_stack[na] = d
+                other = d.get('solvable', None)
+                if not other:
+                    d['job'] = job
+                    d['solvable'] = solvable
+                    continue
 
+                logger.info("Compare update's evr solvable: `{}` other: `{}`".format(solvable, other))
+                c = solvable.evrcmp(other)
+                if c == 0:
+                    logger.info("Equal evr solvable: `{}` other: `{}`".format(solvable, other))
+                    continue
+                elif c == 1:
+                    logger.info("Keep solvable `{}`".format(solvable))
+                    other_job = d['job']
+                    # nullify other job
+                    other_job.how = solv.Job.SOLVER_NOOP
+                    d['job'] = job
+                    d['solvable'] = solvable
+                elif c == -1:
+                    logger.info("Keep solvable `{}`".format(other))
+                    # a better version already exists
+                    # in our stack
+                    job.how = solv.Job.SOLVER_NOOP
 
     def get_update_collection_selection(self, patch, action):
         """
