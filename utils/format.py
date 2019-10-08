@@ -2,7 +2,6 @@
 import solv
 
 import re
-from time import time
 from collections import OrderedDict
 
 import logging
@@ -73,54 +72,30 @@ class data_json(object):
             str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
             str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
             str_evr = solvable.lookup_str(solv.SOLVABLE_EVR)
-            rpm_list.append(re.escape("{}-{}.{}.rpm".format(str_name, str_evr, str_arch)))
+            rpm_list.append("{}-{}.{}.rpm".format(str_name, str_evr, str_arch))
         
-        rpm_list_len = len(rpm_list)
         # iterate over all advisory is faster than
         # searching for each errata's solv.UPDATE_COLLECTION_FILENAME
         # one by one
-        x = 0
-        step = 500
-        update_cache = {}
-        data_na = data.keys()
-        while(x < rpm_list_len):
-            re_list = rpm_list[x:x+step]
-            x += step
-            tbase = time()
-            #print('re', x , len(re_list), re_list)
-            uc_pack = self.pool.Dataiterator(solv.UPDATE_COLLECTION_FILENAME, '(' + '|'.join(re_list) + ')', solv.Dataiterator.SEARCH_REGEX)
-            uc_pack.prepend_keyname(solv.UPDATE_COLLECTION)
-            #uc_pack.prepend_keyname(solv.UPDATE_REFERENCE)
-            for p in uc_pack:
-                pos = p.parentpos()
-                #str_col_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
-                str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
-                str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
-                str_col_filename = pos.lookup_str(solv.UPDATE_COLLECTION_FILENAME)
-                #print(pos, p.solvable, str_col_filename)
-                na = "{}.{}".format(str_col_name, str_col_arch)
-                if na in data_na:
-                    # update or insert errata in packages list
-                    na = "{}.{}".format(str_col_name, str_col_arch)
-                    d = data[na]
-                    updateinfos = d.get('updateinfos', [])
-                    solvable = p.solvable
-                    info = update_cache.get(str(solvable), None)
-                    d["updateinfos"] = updateinfos
-                    if not info:
-                        logger.info("Retrieve update info for : {}, {}".format(solvable, str_col_filename))
-                        info = self.get_updateinfo(p.solvable)
-                        # save info in cache 
-                        update_cache[str(solvable)] = info
-                        #import pdb; pdb.set_trace()
-                    else: 
-                        logger.info("Retrieve update info from cache for : {}, {}".format(solvable, str_col_filename))
-                    
-                    if info not in updateinfos: 
-                        updateinfos.append(info)
-
-            
-            print('Stats : {}/{} {:.1%}, step: {}, ratio: {}'.format(x, rpm_list_len, x/rpm_list_len, step, (time()-tbase)/step))
+        uc_pack = self.pool.Dataiterator(solv.UPDATE_COLLECTION_FILENAME, '*', solv.Dataiterator.SEARCH_GLOB)
+        uc_pack.prepend_keyname(solv.UPDATE_COLLECTION)
+        for p in uc_pack:
+            pos = p.parentpos()
+            #str_col_evr = pos.lookup_str(solv.UPDATE_COLLECTION_EVR)
+            str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
+            str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
+            str_col_filename = pos.lookup_str(solv.UPDATE_COLLECTION_FILENAME)
+            na = "{}.{}".format(str_col_name, str_col_arch)
+            d = data.get(na, None)
+            if d and str_col_filename in rpm_list:
+                # update or insert errata in packages list
+                updateinfos = d.get('updateinfos', [])
+                solvable = p.solvable
+                d["updateinfos"] = updateinfos
+                logger.info("Retrieve update info for : {}, {}".format(solvable, str_col_filename))
+                info = self.get_updateinfo(p.solvable)
+                if info not in updateinfos: 
+                    updateinfos.append(info)
 
 
     def format(self, solvables, updateinfo=True):
