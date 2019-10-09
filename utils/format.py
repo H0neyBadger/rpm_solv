@@ -12,6 +12,18 @@ class data_json(object):
 
     def __init__(self, pool):
         self.pool = pool
+    
+    def get_array(self, solvable, keyname):
+        """
+        Retrun a list of string based on solvable's keyname 
+        """
+        ret = []
+        ids = solvable.lookup_idarray(keyname)
+        for i in ids:
+            ret.append(self.pool.id2str(i))
+        # sort all array to keep consistent
+        # list in data reports
+        return sorted(ret)
 
     def get_references(self, solvable, references):
         """
@@ -28,14 +40,14 @@ class data_json(object):
             str_reference_type = pos.lookup_str(solv.UPDATE_REFERENCE_TYPE)
             references.append(
                 OrderedDict((
-                    ("references", str_reference_id),
+                    ("reference_id", str_reference_id),
                     ("reference_title", str_reference_title),
                     ("reference_href", str_reference_href),
                     ("reference_type", str_reference_type),
                 ))
             )
 
-    def get_updateinfo(self, solvable):
+    def get_updateinfo(self, solvable, str_col_filename):
         """
         Read errata/advisory info
         i.e: severity, name ...
@@ -56,7 +68,8 @@ class data_json(object):
             ("severity", str_severity),
             ("buildtime", num_buildtime),
             ("reboot", str_reboot),
-            ("references", references), 
+            ("collection_filename", str_col_filename),
+            ("references", sorted(references, key=lambda k: k['reference_id'], reverse=True)), 
         ))
     
     def build_updateinfo_stack(self, data, sel):
@@ -91,11 +104,11 @@ class data_json(object):
                 # update or insert errata in packages list
                 updateinfos = d.get('updateinfos', [])
                 solvable = p.solvable
-                d["updateinfos"] = updateinfos
                 logger.info("Retrieve update info for : {}, {}".format(solvable, str_col_filename))
-                info = self.get_updateinfo(p.solvable)
+                info = self.get_updateinfo(p.solvable, str_col_filename)
                 if info not in updateinfos: 
                     updateinfos.append(info)
+                    d["updateinfos"] = sorted(updateinfos, key=lambda k: k['buildtime'], reverse=True)
 
 
     def format(self, solvables, updateinfo=True):
@@ -110,35 +123,62 @@ class data_json(object):
             str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
             str_evr = s.lookup_str(solv.SOLVABLE_EVR)
             num_buildtime = s.lookup_num(solv.SOLVABLE_BUILDTIME)
-           
+            str_vendor = s.lookup_str(solv.SOLVABLE_VENDOR)
+            str_summary = s.lookup_str(solv.SOLVABLE_SUMMARY)
+            str_description = s.lookup_str(solv.SOLVABLE_DESCRIPTION)
+            provides = self.get_array(s, solv.SOLVABLE_PROVIDES)
+            requires = self.get_array(s, solv.SOLVABLE_REQUIRES)
+            # do not display filelist, obsolete & conflict
+            # since those attributes are removed from pool 
+            # to avoid problem solving
+            #filelist = self.get_array(s, solv.SOLVABLE_FILELIST)
+            #import pdb; pdb.set_trace()
+
             nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
             # update or insert errata in packages list
             na = "{}.{}".format(str_name, str_arch)
-            d = OrderedDict((
-                ('nevra', nevra),
-                ('name', str_name),
-                ('evr', str_evr),
-                ('arch', str_arch),
-                ('repo', str(s.repo)),
-                ('buildtime', num_buildtime),
-            ))
-            data[na] = d
             # 1:3.0.12-17.el7
             ma = evr_re.match(str_evr)
             if ma is not None:
                 md = ma.groupdict()
                 e = md['epoch']
                 if not e:
-                    d['epoch'] = '0'
+                    epoch = '0'
                 else :
-                    d['epoch'] = e
-                d['version'] = ma['version']
-                d['release'] = ma['release']
-            if d['release']:
+                    epoch = e
+                version = ma['version']
+                release = ma['release']
+            if release:
                 frmt_str = '{epoch}:{name}-{version}.{release}.{arch}'
             else:
                 frmt_str = '{epoch}:{name}-{version}.{arch}'
-            d['envra'] = frmt_str.format(**d)
+            df = {
+                'name': str_name,
+                'epoch': epoch,
+                'release': release,
+                'version': version,
+                'arch': str_arch,
+            }
+            envra = frmt_str.format(**df)
+
+            d = OrderedDict((
+                ('nevra', nevra),
+                ('summary', str_summary),
+                ('description', str_description),
+                ('buildtime', num_buildtime),
+                ('vendor', str_vendor),
+                ('name', str_name),
+                ('epoch', epoch),
+                ('release', release),
+                ('version', version),
+                ('arch', str_arch),
+                ('evr', str_evr),
+                ('envra', envra),
+                ('repo', str(s.repo)),
+                ('provides', provides),
+                ('requires', requires),
+            ))
+            data[na] = d
             updateinfos = [] 
             # read all <= related packages
             rel_query = "{}<={}".format(na, str_evr)
