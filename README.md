@@ -35,9 +35,27 @@ cat ./data.json
     '*' \
     --weak
 
-```
+# exclude fedora repo from selection
+./rpm_solv.py \
+    "repo:fedora:selection:subtract:*" \
+    "bash" --weak 
 
-TODO:
-* manage solutions’ elements correctly
-* fix cache folder (for standard user)
+# exclude all .x86_64 package from BaseOS repo
+# "repo:BaseOS:selection:subtract:*.x86_64"
+# then exclude bash>4.4.19-7.el8
+# finally, request bash package resolution
+./rpm_solv.py --repodir ./repos/  \
+    "repo:BaseOS:selection:subtract:*.x86_64" \
+    "selection:subtract:bash>4.4.19-7.el8" \
+    "repo:BaseOS:bash" --weak
+
+# the selection filter only affect the pakages query
+# it does not change the packages solver set 
+# in other words 
+# even if you manually exculde a package 
+# from the selection. the excluded package
+# might be present in the final resutl 
+# because of dependecies
+
+```
 

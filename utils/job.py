@@ -13,6 +13,7 @@ class JobSolver(object):
         self.pool = pool
         self.repos = repos
         self.patch_stack = {}
+        self.sel_filter = pool.Selection_all()
 
     def __add_update_to_stack(self, jobs):
         """
@@ -72,6 +73,7 @@ class JobSolver(object):
                 #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
                 nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
                 sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
+                sel.filter(self.sel_filter)
                 if not sel.isempty():
                     jobs = sel.jobs(action)
                     self.__add_update_to_stack(jobs)
@@ -84,41 +86,124 @@ class JobSolver(object):
         into a list of job
         """
         # convert arguments into jobs
-
         if not action:
             action=self.default_action
-
         jobs = []
+
         for arg in packages:
-            repofilter, arg = self.__get_repofilter(arg)
+            repofilter, arg = self.__get_repofilter(arg) 
+            is_selection_filter = self.__parse_filter(arg, repofilter=repofilter)
+            if is_selection_filter: 
+                # update current object's filter 
+                # selection:add ... 
+                # is not considered as job
+                # goto the next cmd args
+                continue
+
+            if repofilter:
+                repofilter.filter(self.sel_filter)
+                sel = self.__build_selection(arg, sel_filter=repofilter)
+            else: 
+                sel = self.__build_selection(arg, sel_filter=self.sel_filter)
+            
+            if not sel.isempty():
+                # read solvables affected by an update/patch 
+                jobs += self.get_update_collection_selection(sel, action) 
+                jobs += sel.jobs(action)
+
+        return jobs
+
+    
+    def __build_selection(self, arg, sel_filter=None, flags=None, emptyfail=True):
+        logger.debug('Solve selection query `{}`'.format(arg))
+        if flags == None:
             flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
             flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
             if len(arg) and arg[0] == '/':
                 flags |= solv.Selection.SELECTION_FILELIST
-            sel = self.pool.select(arg, flags)
-            if repofilter:
-               sel.filter(repofilter)
-            if sel.isempty():
-                sel = self.pool.select(arg, flags | solv.Selection.SELECTION_NOCASE)
-                if repofilter:
-                   sel.filter(repofilter)
-                if not sel.isempty():
-                    print("[ignoring case for '%s']" % arg)
-            if sel.isempty():
-                print("nothing matches '%s'" % arg)
-                exit(1)
-            if sel.flags & solv.Selection.SELECTION_FILELIST:
-                print("[using file list match for '%s']" % arg)
-            if sel.flags & solv.Selection.SELECTION_PROVIDES:
-                print("[using capability match for '%s']" % arg)
-            
-            # read solvables affected by an update/patch 
-            jobs += self.get_update_collection_selection(sel, action) 
-            jobs += sel.jobs(action)
+        
+        sel = self.pool.select(arg, flags)
+        if sel_filter:
+            sel.filter(sel_filter)
+        
+        if sel.isempty():
+            sel = self.pool.select(arg, flags | solv.Selection.SELECTION_NOCASE)
+            if sel_filter:
+               sel.filter(sel_filter)
+            if not sel.isempty():
+                logger.warning("[ignoring case for '%s']" % arg)
+        if sel.isempty() and emptyfail:
+            logger.error("nothing matches '%s'" % arg)
+            exit(1)
+        elif sel.isempty():
+            #logger.warning("nothing matches '%s'" % arg)
+            return sel
+        if sel.flags & solv.Selection.SELECTION_FILELIST:
+            logger.warning("[using file list match for '%s']" % arg)
+        if sel.flags & solv.Selection.SELECTION_PROVIDES:
+            logger.warning("[using capability match for '%s']" % arg)
+        
+        return sel
+    
+    def __parse_filter(self, pkg, repofilter=None):
+        """
+        retrieve custom repo keyword
+        selection:add:package.x86_64 >= 1.0.0
+        
+        it retruns a libsolv selection 
+        and package string query (without filter expression) 
 
-        return jobs
+        return filter, 'package.x86_64 >= 1.0.0'
+        """
+        is_selection_filter = False
+        if pkg.startswith("selection:"):
+            # retrieve custom filter
+            # selection:add:*
+            keyword, action, pkg = pkg.split(':', 2)
+            
+            base_filter = self.pool.Selection_all() 
+
+            if repofilter != None :
+                logger.debug("Build selection filter from repo")
+                base_filter.filter(repofilter)
+            else :
+                logger.debug("Build selection filter")
+
+            sel = self.__build_selection(pkg, sel_filter = base_filter)
+            if action in ['add']:
+                # A + B
+                self.sel_filter.add(sel)
+            elif action in ['subtract']:
+                # A - B
+                self.sel_filter.subtract(sel)
+            elif action in ['filter']: 
+                # A ∩ B
+                self.sel_filter.filter(sel)
+            elif action in ['symmetric_difference']:
+                # A xor B
+                # reverse filter
+                other = self.sel_filter.clone()
+                self.sel_filter.add(sel)
+                other.filter(sel)
+                self.sel_filter.subtract(other)
+            else:
+                logger.error("Invalid selection filter `{}`. ' \
+                        'please use `add`, `subtract` `filter` ' \
+                        'or `symmetric_difference` keywords".format(action))
+                exit(1)
+            is_selection_filter = True
+        return is_selection_filter
 
     def __get_repofilter(self, pkg):
+        """
+        retrieve custom repo keyword
+        repo:foo:packages-foo.x86_64
+        
+        it retruns a libsolv selection 
+        and package string query (without filter expression) 
+
+        return repofilter, 'packages-foo.x86_64'
+        """
         repofilter = None
         if pkg.startswith("repo:"):
             # retrieve custom repo keyword
@@ -138,6 +223,6 @@ class JobSolver(object):
                 logger.error("Possible repo: name values {}".format(','.join(repo_names)))
                 exit(1)
         # return the pkg expression 
-        # withour the repo:foo: prefix
+        # without the repo:foo: prefix
         return repofilter, pkg
 

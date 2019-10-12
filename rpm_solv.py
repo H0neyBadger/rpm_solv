@@ -49,11 +49,20 @@ def main():
     parser.add_argument('--exportdir', default="./", 
                         type=dir_path, help="Directory to use for data.json export")
     parser.add_argument('packages', type=str, nargs='+',
-                         help='list of packages or solvable glob expression')
+                         help='list of packages or solvable glob expression.\n' \
+                              'It accepts `repo:` and `selection:` prexif.')
     parser.add_argument('--weak', action='store_true', default=False,
                          help="The solver tries to fulfill weak jobs, " \
                              "but does not report a problem " \
                              "if it is not possible to do so.")
+
+    root = logging.getLogger()
+    root.setLevel(logging.WARNING) 
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    root.addHandler(handler)
 
     args = parser.parse_args()
     
