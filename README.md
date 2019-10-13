@@ -57,5 +57,14 @@ cat ./data.json
 # might be present in the final resutl 
 # because of dependecies
 
+# To modify the job solving process 
+# you may change jobs flags 
+# by using action delimited 
+# by a comma character
+# "job:essential,forcebest:bash"
+# https://github.com/openSUSE/libsolv/blob/master/doc/libsolv-bindings.txt#the-job-class
+./rpm_solv.py --repodir ./repos/  \
+    "job:essential,forcebest:bash" 
+
 ```
 

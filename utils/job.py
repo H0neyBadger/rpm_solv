@@ -99,7 +99,7 @@ class JobSolver(object):
                 # is not considered as job
                 # goto the next cmd args
                 continue
-
+            job_action, arg = self.__parse_job(arg, flags=action)
             if repofilter:
                 repofilter.filter(self.sel_filter)
                 sel = self.__build_selection(arg, sel_filter=repofilter)
@@ -108,8 +108,8 @@ class JobSolver(object):
             
             if not sel.isempty():
                 # read solvables affected by an update/patch 
-                jobs += self.get_update_collection_selection(sel, action) 
-                jobs += sel.jobs(action)
+                jobs += self.get_update_collection_selection(sel, job_action) 
+                jobs += sel.jobs(job_action)
 
         return jobs
 
@@ -144,7 +144,33 @@ class JobSolver(object):
             logger.warning("[using capability match for '%s']" % arg)
         
         return sel
-    
+   
+    def __parse_job(self, pkg, flags=0):
+        """
+        retrieve custom repo keyword
+        job:weak:package.x86_64 >= 1.0.0
+        
+        it retruns a string libsolv fags
+        return flags, 'package.x86_64 >= 1.0.0'
+        """
+        old_flags = flags
+        if pkg.startswith("job:"):
+            # retrieve custom filter
+            # job:essential,weak:*
+            keyword, action, pkg = pkg.split(':', 2)
+            flag_names = action.split(',')
+            for flag_name in flag_names:
+                flag = getattr(solv.Job, 'SOLVER_'+ flag_name.upper(), None)
+                if flag == None:
+                    logger.error("Invalid job flag `{}`. ' \
+                        'please use a valid keywords".format(flag_name))
+                    exit(1)
+                flags |= flag
+
+            logger.debug('Set Job action as `{}` flags `{:02X}` -> `{:02X}`'.format(action,old_flags, flags)) 
+        return flags, pkg
+
+
     def __parse_filter(self, pkg, repofilter=None):
         """
         retrieve custom repo keyword

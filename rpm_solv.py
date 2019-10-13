@@ -147,6 +147,10 @@ def main():
             repo.updateaddedprovides(addedprovides)
 
     pool.createwhatprovides()
+    
+    action_solver |= solv.Job.SOLVER_CLEANDEPS
+    if args.weak:
+        action_solver |= solv.Job.SOLVER_WEAK
 
     # convert arguments into jobs
     js = JobSolver(pool, repos, action_solver)
@@ -155,12 +159,6 @@ def main():
     if not jobs:
         print("no package matched.")
         sys.exit(1)
-    
-    for job in jobs:
-        #job.how |= solv.Job.SOLVER_FORCEBEST
-        job.how |= solv.Job.SOLVER_CLEANDEPS
-        if args.weak:
-            job.how |= solv.Job.SOLVER_WEAK
 
     #pool.set_debuglevel(2)
     solver = pool.Solver()
