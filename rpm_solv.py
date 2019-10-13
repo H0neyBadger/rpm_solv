@@ -46,8 +46,8 @@ def main():
                         type=str, help="Base architecture")
     parser.add_argument('--releasever', default="30", 
                         type=str, help="Release version")
-    parser.add_argument('--exportdir', default="./", 
-                        type=dir_path, help="Directory to use for data.json export")
+    parser.add_argument('--output', default="./", 
+                        type=dir_path, help="Directory to use for json export")
     parser.add_argument('packages', type=str, nargs='+',
                          help='list of packages or solvable glob expression.\n' \
                               'It accepts `repo:` and `selection:` prexif.')
@@ -73,8 +73,26 @@ def main():
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     root.addHandler(handler)
-
+   
+    logger.debug('Read argpase inputs')
+    output =  os.path.abspath(args.output)
+    if os.path.isdir(output):
+        output =  os.path.join(output, 'data.json')
     
+    export_dir =  os.path.dirname(output) 
+    logger.debug('Check output file access: `{}` file'.format(output)) 
+    output_exists = os.path.exists(output)
+    if not output_exists and not os.access(export_dir, os.R_OK|os.W_OK|os.X_OK|os.F_OK): 
+        logger.error('Unable to write data output folder `{}` file'.format(export_dir))
+        exit(1)
+    
+    if output_exists \
+        and os.path.isfile(output) \
+        and not os.access(output, os.R_OK|os.W_OK): 
+        logger.error('Unable to write data output file `{}` file'.format(output))
+        exit(1)
+    
+
     # problems_callback = interactive
     problems_callback = rule_solver
     data_writer = data_json
@@ -227,7 +245,7 @@ def main():
         s = val.pop('solvable', None)
         s = val.pop('job', None)
 
-    with open('{}/data.json'.format(args.exportdir), 'w', encoding='utf-8') as f:
+    with open(output, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 if __name__== "__main__":

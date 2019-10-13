@@ -9,5 +9,5 @@ podman run --rm -it \
     -o /var/cache/solv/cProfile \
     -s 'cumulative' \
     /usr/sbin/rpm_solv.py "$@" \
-    --exportdir /var/cache/solv/
+    --output /var/cache/solv/
 
