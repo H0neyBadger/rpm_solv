@@ -120,7 +120,6 @@ class data_json(object):
                 logger.warning('Failed to match UPDATE_COLLECTION_FILENAME: `{}`'.format(str_col_filename))
                 continue
 
-
     def format(self, solvables, updateinfo=True):
         evr_re = re.compile('^(?:(?P<epoch>\d+):)?(?P<version>.*?)(?:\.(?P<release>\w+))?$')
         # create an empty selection to read 
@@ -202,9 +201,9 @@ class data_json(object):
             self.build_updateinfo_stack(data, updateinfo_sel)
 
         # sort data's packages name
-        # the sort is just to ease human reading
+        # sorting is just to ease human reading
         # and/or diff comparison
-        return OrderedDict(sorted(data.items()))
+        return list(OrderedDict(sorted(data.items())).values())
 
 
 
