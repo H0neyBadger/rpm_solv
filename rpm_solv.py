@@ -236,14 +236,11 @@ def main():
             print("%d arch changes from '%s' to '%s':" % (cl.count, cl.fromstr, cl.tostr))
         else:
             continue
-        
+         
+        print("install size change: %d K" % trans.calc_installsizechange())
+        logger.info('Build data output')
         dw = data_writer(pool)
         data = dw.format(cl.solvables())
-        print("install size change: %d K" % trans.calc_installsizechange())
-
-    for key, val in {}.items():
-        s = val.pop('solvable', None)
-        s = val.pop('job', None)
 
     with open(output, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)

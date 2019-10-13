@@ -74,20 +74,15 @@ class data_json(object):
     
     def build_updateinfo_stack(self, data, sel):
         """
-        Iterate over selected item
-        to retrieve update infos
+        Parse UPDATE_COLLECTION_FILENAME 
+        and compare it to available selection
+        to retrieve packages' update infos
         """
-        rpm_list = []
         logger.info("Retrieve updateinfo for packages")
-        for solvable in sel.solvables():
-            #logger.info("Retrieve update info for : {}".format(solvable))
-            #import pdb; pdb.set_trace()
-            # solvable is newer than other
-            str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
-            str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
-            str_evr = solvable.lookup_str(solv.SOLVABLE_EVR)
-            rpm_list.append("{}-{}.{}.rpm".format(str_name, str_evr, str_arch))
-        
+        split_filname_re = re.compile( \
+                '(?P<name>.*)-(?P<version>[^-]+)-(?P<release>[^-]+)\.(?P<arch>\w+).rpm$' \
+        )
+        flags = solv.Selection.SELECTION_NAME | solv.Selection.SELECTION_DOTARCH | solv.Selection.SELECTION_REL
         # iterate over all advisory is faster than
         # searching for each errata's solv.UPDATE_COLLECTION_FILENAME
         # one by one
@@ -99,17 +94,31 @@ class data_json(object):
             str_col_name = pos.lookup_str(solv.UPDATE_COLLECTION_NAME)
             str_col_arch = pos.lookup_str(solv.UPDATE_COLLECTION_ARCH)
             str_col_filename = pos.lookup_str(solv.UPDATE_COLLECTION_FILENAME)
-            na = "{}.{}".format(str_col_name, str_col_arch)
-            d = data.get(na, None)
-            if d and str_col_filename in rpm_list:
-                # update or insert errata in packages list
-                updateinfos = d.get('updateinfos', [])
-                solvable = p.solvable
-                logger.debug("Retrieve update info for : {}, {}".format(solvable, str_col_filename))
-                info = self.get_updateinfo(p.solvable, str_col_filename)
-                if info not in updateinfos: 
-                    updateinfos.append(info)
-                    d["updateinfos"] = sorted(updateinfos, key=lambda k: k['buildtime'], reverse=True)
+            
+            nevra_m = split_filname_re.match(str_col_filename)
+            if nevra_m is not None:
+                nevra_d = nevra_m.groupdict()
+                query = '{name}.{arch} >= {version}-{release}'.format(**nevra_d) 
+                new_sel = self.pool.select(query, flags)
+                new_sel.filter(sel)
+                for s in new_sel.solvables():
+                    str_name = s.lookup_str(solv.SOLVABLE_NAME)
+                    str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+                    str_evr = s.lookup_str(solv.SOLVABLE_EVR)
+                    nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
+                    d = data.get(nevra, None)
+                    if d:
+                        # update or insert errata in packages list
+                        updateinfos = d.get('updateinfos', [])
+                        info = self.get_updateinfo(p.solvable, str_col_filename)
+                        if info not in updateinfos:
+                            updateinfos.append(info)
+                        d["updateinfos"] = sorted(updateinfos, key=lambda k: k['buildtime'], reverse=True)
+                    else:
+                        continue
+            else:
+                logger.warning('Failed to match UPDATE_COLLECTION_FILENAME: `{}`'.format(str_col_filename))
+                continue
 
 
     def format(self, solvables, updateinfo=True):
@@ -179,7 +188,7 @@ class data_json(object):
                 ('provides', provides),
                 ('requires', requires),
             ))
-            data[na] = d
+            data[nevra] = d
             updateinfos = [] 
             # read all <= related packages
             rel_query = "{}<={}".format(na, str_evr)
