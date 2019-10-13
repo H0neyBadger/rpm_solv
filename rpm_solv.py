@@ -55,16 +55,25 @@ def main():
                          help="The solver tries to fulfill weak jobs, " \
                              "but does not report a problem " \
                              "if it is not possible to do so.")
-
+    
+    parser.add_argument('-v', '--verbose', action='count', default=0)
+    
+    args = parser.parse_args()
+    level = logging.WARNING
+    verbose = args.verbose
+    if verbose == 1:
+        level = logging.INFO
+    elif verbose >= 2:
+        level = logging.DEBUG
+        
     root = logging.getLogger()
-    root.setLevel(logging.WARNING) 
+    root.setLevel(level) 
     handler = logging.StreamHandler(sys.stderr)
-    handler.setLevel(logging.DEBUG)
+    handler.setLevel(level)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     root.addHandler(handler)
 
-    args = parser.parse_args()
     
     # problems_callback = interactive
     problems_callback = rule_solver
@@ -81,7 +90,8 @@ def main():
 
     basearch = args.basearch
     releasever = args.releasever
-
+    
+    logger.info('Fetch repodata')
     for repo_file in sorted(glob.glob('%s/*.repo' % reposdir)):
         config = configparser.ConfigParser()
         config.read(repo_file)
@@ -109,6 +119,7 @@ def main():
     # confict to solve 
     # this helps to keep as much packages
     # as possible in the data.json
+    logger.debug('Remove SOLVABLE_CONFLICTS SOLVABLE_OBSOLETES from pool')
     for s in pool.solvables:
         s.unset(solv.SOLVABLE_CONFLICTS)
         s.unset(solv.SOLVABLE_OBSOLETES)
@@ -152,6 +163,7 @@ def main():
     if args.weak:
         action_solver |= solv.Job.SOLVER_WEAK
 
+    logger.info('Build job stack')
     # convert arguments into jobs
     js = JobSolver(pool, repos, action_solver)
     jobs = js.get_jobs_from_packages(packages) 
@@ -160,14 +172,17 @@ def main():
         print("no package matched.")
         sys.exit(1)
 
-    #pool.set_debuglevel(2)
+    if verbose > 2:
+        pool.set_debuglevel(verbose-2)
+
     solver = pool.Solver()
     flags = solv.Solver.SOLVER_FLAG_SPLITPROVIDES \
         | solv.Solver.SOLVER_FLAG_NO_INFARCHCHECK \
         #| solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
 
     solver.set_flag(flags, 1)
-
+    
+    logger.info('Solv jobs')
     while True:
         problems = solver.solve(jobs)
         if not problems:

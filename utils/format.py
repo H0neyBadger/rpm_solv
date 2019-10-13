@@ -78,6 +78,7 @@ class data_json(object):
         to retrieve update infos
         """
         rpm_list = []
+        logger.info("Retrieve updateinfo for packages")
         for solvable in sel.solvables():
             #logger.info("Retrieve update info for : {}".format(solvable))
             #import pdb; pdb.set_trace()
@@ -104,7 +105,7 @@ class data_json(object):
                 # update or insert errata in packages list
                 updateinfos = d.get('updateinfos', [])
                 solvable = p.solvable
-                logger.info("Retrieve update info for : {}, {}".format(solvable, str_col_filename))
+                logger.debug("Retrieve update info for : {}, {}".format(solvable, str_col_filename))
                 info = self.get_updateinfo(p.solvable, str_col_filename)
                 if info not in updateinfos: 
                     updateinfos.append(info)
