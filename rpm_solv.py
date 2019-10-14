@@ -21,7 +21,8 @@ from utils.job import JobSolver
 
 from utils.repo import dir_path, \
         repo_repomd, \
-        load_stub
+        load_stub, \
+        repo_system
 
 from utils.problem import interactive, \
         rule_solver
@@ -44,10 +45,10 @@ def main():
                         help='repository directory')
     parser.add_argument('--basearch', default="x86_64", 
                         type=str, help="Base architecture")
-    parser.add_argument('--releasever', default="30", 
+    parser.add_argument('--releasever', default="", 
                         type=str, help="Release version")
     parser.add_argument('--output', default="./", 
-                        type=dir_path, help="Directory to use for json export")
+                        help="Directory to use for json export")
     parser.add_argument('packages', type=str, nargs='+',
                          help='list of packages or solvable glob expression.\n' \
                               'It accepts `repo:` and `selection:` prexif.')
@@ -55,6 +56,8 @@ def main():
                          help="The solver tries to fulfill weak jobs, " \
                              "but does not report a problem " \
                              "if it is not possible to do so.")
+    parser.add_argument('--reportupdateinfo', action='store_true', default=False,
+                         help="Enable updateinfo report to json output")
     
     parser.add_argument('-v', '--verbose', action='count', default=0)
     
@@ -91,8 +94,20 @@ def main():
         and not os.access(output, os.R_OK|os.W_OK): 
         logger.error('Unable to write data output file `{}` file'.format(output))
         exit(1)
-    
-
+   
+    releasever = args.releasever
+    if not releasever: 
+        # read local rpm 
+        # to retrieve system-release
+        tmp = solv.Pool()
+        sysrepo = repo_system('@System', 'system')
+        sysrepo.load(tmp)
+        tmp.createwhatprovides()
+        release_sel = tmp.select('system-release', solv.Selection.SELECTION_PROVIDES)
+        for s in release_sel.solvables():
+            releasever = s.evr.split('-')[0]
+            logger.debug('Read releasever {}'.format(releasever))
+        tmp.free()
     # problems_callback = interactive
     problems_callback = rule_solver
     data_writer = data_json
@@ -107,7 +122,6 @@ def main():
     reposdir = args.repodir
 
     basearch = args.basearch
-    releasever = args.releasever
     
     logger.info('Fetch repodata')
     for repo_file in sorted(glob.glob('%s/*.repo' % reposdir)):
@@ -240,7 +254,8 @@ def main():
         print("install size change: %d K" % trans.calc_installsizechange())
         logger.info('Build data output')
         dw = data_writer(pool)
-        data = dw.format(cl.solvables())
+        updateinfo = args.reportupdateinfo
+        data = dw.format(cl.solvables(), updateinfo=updateinfo)
 
     with open(output, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
