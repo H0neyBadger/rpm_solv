@@ -133,7 +133,7 @@ def main():
             if repoattr['type'] == 'rpm':
                 repo = repo_repomd(section, 'repomd', repoattr, 
                                    basearch = args.basearch,
-                                   releasever = args.releasever)
+                                   releasever = releasever)
                 repos.append(repo)
 
     pool = solv.Pool()
