@@ -126,23 +126,10 @@ class JobSolver(object):
         if sel_filter:
             sel.filter(sel_filter)
         
-        if sel.isempty():
-            sel = self.pool.select(arg, flags | solv.Selection.SELECTION_NOCASE)
-            if sel_filter:
-               sel.filter(sel_filter)
-            if not sel.isempty():
-                logger.warning("[ignoring case for '%s']" % arg)
-        if sel.isempty() and emptyfail:
+        if emptyfail and sel.isempty():
             logger.error("nothing matches '%s'" % arg)
             exit(1)
-        elif sel.isempty():
-            #logger.warning("nothing matches '%s'" % arg)
-            return sel
-        if sel.flags & solv.Selection.SELECTION_FILELIST:
-            logger.warning("[using file list match for '%s']" % arg)
-        if sel.flags & solv.Selection.SELECTION_PROVIDES:
-            logger.warning("[using capability match for '%s']" % arg)
-        
+
         return sel
    
     def __parse_job(self, pkg, flags=0):
@@ -181,21 +168,18 @@ class JobSolver(object):
 
         return filter, 'package.x86_64 >= 1.0.0'
         """
+        flags = solv.Selection.SELECTION_NAME \
+            | solv.Selection.SELECTION_CANON \
+            | solv.Selection.SELECTION_DOTARCH \
+            | solv.Selection.SELECTION_REL
+
         is_selection_filter = False
         if pkg.startswith("selection:"):
             # retrieve custom filter
             # selection:add:*
             keyword, action, pkg = pkg.split(':', 2)
             
-            base_filter = self.pool.Selection_all() 
-
-            if repofilter != None :
-                logger.debug("Build selection filter from repo")
-                base_filter.filter(repofilter)
-            else :
-                logger.debug("Build selection filter")
-
-            sel = self.__build_selection(pkg, sel_filter = base_filter)
+            sel = self.__build_selection(pkg, sel_filter=repofilter, flags=flags, emptyfail=False)
             if action in ['add']:
                 # A + B
                 self.sel_filter.add(sel)
