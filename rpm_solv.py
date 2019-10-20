@@ -147,15 +147,6 @@ def main():
         if int(repo['enabled']):
             repo.load(pool)
     
-    # FIXME: workaroud to have less 
-    # confict to solve 
-    # this helps to keep as much packages
-    # as possible in the data.json
-    logger.debug('Remove SOLVABLE_CONFLICTS SOLVABLE_OBSOLETES from pool')
-    for s in pool.solvables:
-        s.unset(solv.SOLVABLE_CONFLICTS)
-        s.unset(solv.SOLVABLE_OBSOLETES)
-
     cmdlinerepo = None
     packages = []
     for arg in args.packages:
@@ -191,6 +182,15 @@ def main():
 
     pool.createwhatprovides()
     
+    # FIXME: workaroud to have less 
+    # confict to solve 
+    # this helps to keep as much packages
+    # as possible in the data.json
+    logger.debug('Remove SOLVABLE_CONFLICTS SOLVABLE_OBSOLETES from pool')
+    for s in pool.solvables:
+        s.unset(solv.SOLVABLE_CONFLICTS)
+        s.unset(solv.SOLVABLE_OBSOLETES)
+
     action_solver |= solv.Job.SOLVER_CLEANDEPS
     if args.weak:
         action_solver |= solv.Job.SOLVER_WEAK
