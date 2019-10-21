@@ -475,6 +475,13 @@ class repo_system(repo_generic):
         self.writecachedrepo(None)
         return True
 
+class repo_installed(repo_generic):
+    def load(self, pool):
+        self.handle = pool.add_repo(self.name)
+        self.handle.appdata = self
+        pool.installed = self.handle
+        return True
+
 class repo_cmdline(repo_generic):
     def load(self, pool):
         self.handle = pool.add_repo(self.name)

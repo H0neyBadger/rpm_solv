@@ -61,7 +61,7 @@ def remove_solvable_from_jobs(solvable, jobs):
             break
     return found
 
-def rule_solver(jobs, problems):
+def rule_solver(jobs, pool, installed_repo, problems):
     """
     Solve problems manually from console interactive prompt
     """
@@ -96,12 +96,23 @@ def rule_solver(jobs, problems):
                         # example:
                         # nothing provides python3.7dist(xmltodict) = 0.11.0 
                         # needed by python3-pyvirtualize-0.9-6.20181003git57d2307.fc30.noarch
-                        s = ri.solvable
-                        found = remove_solvable_from_jobs(s, jobs)
-                        if not found: 
-                            # solution is slower than remove
-                            exec_solution(problem.solutions()[0], jobs)
-                            #s.unset(solv.SOLVABLE_REQUIRES)
+                        
+                        # fake = installed_repo.handle.add_solvable()
+                        # fake.name = 'fake:{}'.format(ri.dep.str())
+                        # fake.arch = 'noarch'
+                        # fake.evr =  ''
+                        # fake.add_deparray(solv.SOLVABLE_PROVIDES, ri.dep)
+                        # addedprovides = pool.addfileprovides_queue()
+                        # installed_repo.updateaddedprovides(addedprovides)
+                        # pool.createwhatprovides()
+                        
+                        #requires = s.lookup_idarray(solv.SOLVABLE_REQUIRES)
+                        #s.unset(solv.SOLVABLE_REQUIRES)
+                        #requires.remove(dep_id)
+                        #for d in requires:
+                        #    s.add_deparray(solv.SOLVABLE_REQUIRES, d)
+                        #    exec_solution(problem.solutions()[0], jobs)
+                        remove_solvable_from_jobs(ri.solvable, jobs)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_REQUIRES:
                         print('SOLVER_RULE_PKG_REQUIRES') 

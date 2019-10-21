@@ -88,7 +88,12 @@ class JobSolver(object):
         # convert arguments into jobs
         if not action:
             action=self.default_action
-        jobs = []
+        
+        all_sel = self.pool.Selection_all()
+        # mark all solvable as multiversion
+        # this allow to create a list of packages 
+        # that can satisfy many profiles
+        jobs = all_sel.jobs(solv.Job.SOLVER_MULTIVERSION)
 
         for arg in packages:
             repofilter, arg = self.__get_repofilter(arg) 
@@ -110,7 +115,6 @@ class JobSolver(object):
                 # read solvables affected by an update/patch 
                 jobs += self.get_update_collection_selection(sel, job_action) 
                 jobs += sel.jobs(job_action)
-
         return jobs
 
     

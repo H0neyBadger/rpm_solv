@@ -22,7 +22,8 @@ from utils.job import JobSolver
 from utils.repo import dir_path, \
         repo_repomd, \
         load_stub, \
-        repo_system
+        repo_system, \
+        repo_installed
 
 from utils.problem import interactive, \
         rule_solver
@@ -135,14 +136,15 @@ def main():
                                    basearch = args.basearch,
                                    releasever = releasever)
                 repos.append(repo)
-
+    
     pool = solv.Pool()
     pool.setarch(args.basearch)
     pool.set_loadcallback(load_stub)
 
     # now load all enabled repos into the pool
-    #sysrepo = repo_system('@System', 'system')
-    #sysrepo.load(pool)
+    # create a fake insatlled repo 
+    sysrepo = repo_installed('@Installed', 'installed')
+    sysrepo.load(pool)
     for repo in repos:
         if int(repo['enabled']):
             repo.load(pool)
@@ -190,6 +192,7 @@ def main():
     for s in pool.solvables:
         s.unset(solv.SOLVABLE_CONFLICTS)
         s.unset(solv.SOLVABLE_OBSOLETES)
+        #s.unset(solv.SOLVABLE_FILELIST)
 
     action_solver |= solv.Job.SOLVER_CLEANDEPS
     if args.weak:
@@ -219,7 +222,7 @@ def main():
         problems = solver.solve(jobs)
         if not problems:
             break
-        problems_callback(jobs, problems)
+        problems_callback(jobs, pool, sysrepo, problems)
                                     
     # no problems, show transaction
     trans = solver.transaction()
