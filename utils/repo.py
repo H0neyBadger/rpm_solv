@@ -277,7 +277,7 @@ class repo_generic(dict):
                 self.handle.write_first_repodata(f)
             f.flush()
             if self.type != 'system' and not ext:
-                if not self['extcookie']:
+                if not hasattr(self, 'extcookie'):
                     self['extcookie'] = self.calc_cookie_ext(f, self['cookie'])
                 f.write(self['extcookie'])
             if not ext:
@@ -480,6 +480,8 @@ class repo_installed(repo_generic):
         self.handle = pool.add_repo(self.name)
         self.handle.appdata = self
         pool.installed = self.handle
+        self['cookie'] = self.calc_cookie_file("/dev/null")
+        self.writecachedrepo(None)
         return True
 
 class repo_cmdline(repo_generic):

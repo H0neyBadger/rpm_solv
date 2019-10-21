@@ -143,7 +143,7 @@ def main():
 
     # now load all enabled repos into the pool
     # create a fake insatlled repo 
-    sysrepo = repo_installed('@Installed', 'installed')
+    sysrepo = repo_installed('@Installed', 'system')
     sysrepo.load(pool)
     for repo in repos:
         if int(repo['enabled']):
@@ -210,19 +210,22 @@ def main():
     if verbose > 2:
         pool.set_debuglevel(verbose-2)
 
-    solver = pool.Solver()
     flags = solv.Solver.SOLVER_FLAG_SPLITPROVIDES \
         | solv.Solver.SOLVER_FLAG_NO_INFARCHCHECK \
         #| solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
 
-    solver.set_flag(flags, 1)
-    
     logger.info('Solv jobs')
     while True:
+        # use a new solver to 
+        # avoid error SOLVER_RULE_PKG
+        # "some dependency problem"
+        solver = pool.Solver()
+        solver.set_flag(flags, 1)
         problems = solver.solve(jobs)
         if not problems:
             break
         problems_callback(jobs, pool, sysrepo, problems)
+        pool.createwhatprovides()
                                     
     # no problems, show transaction
     trans = solver.transaction()
