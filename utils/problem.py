@@ -61,6 +61,21 @@ def remove_solvable_from_jobs(solvable, jobs):
             break
     return found
 
+def fake_dep_provides(pool, installed_repo, dep):
+    """
+    create a fake solvable
+    to pass dependencies issues
+    """
+    fake = installed_repo.handle.add_solvable()
+    fake.name = 'fake:{}'.format(dep.str())
+    fake.arch = 'noarch'
+    fake.evr =  ''
+    fake.add_deparray(solv.SOLVABLE_PROVIDES, dep)
+    #addedprovides = pool.addfileprovides_queue()
+    #installed_repo.handle.internalize()
+    #installed_repo.updateaddedprovides(addedprovides)
+    #pool.createwhatprovides()
+
 def rule_solver(jobs, pool, installed_repo, problems):
     """
     Solve problems manually from console interactive prompt
@@ -96,17 +111,7 @@ def rule_solver(jobs, pool, installed_repo, problems):
                         # example:
                         # nothing provides python3.7dist(xmltodict) = 0.11.0 
                         # needed by python3-pyvirtualize-0.9-6.20181003git57d2307.fc30.noarch
-                        
-                        fake = installed_repo.handle.add_solvable()
-                        fake.name = 'fake:{}'.format(ri.dep.str())
-                        fake.arch = 'noarch'
-                        fake.evr =  ''
-                        fake.add_deparray(solv.SOLVABLE_PROVIDES, ri.dep)
-                        #addedprovides = pool.addfileprovides_queue()
-                        #installed_repo.handle.internalize()
-                        #installed_repo.updateaddedprovides(addedprovides)
-                        #pool.createwhatprovides()
-                        
+                        fake_dep_provides(pool, installed_repo, ri.dep)
                         #requires = s.lookup_idarray(solv.SOLVABLE_REQUIRES)
                         #s.unset(solv.SOLVABLE_REQUIRES)
                         #requires.remove(dep_id)
@@ -120,28 +125,7 @@ def rule_solver(jobs, pool, installed_repo, problems):
                         # package prelude-correlator-5.0.1-1.fc30.x86_64 
                         # requires python3-prelude-correlator >= 5.0.0, 
                         # but none of the providers can be installed
-                        interactive(jobs, [problem,])
-                        break
-                        s = ri.solvable
-                        req = ri.solvable.pool.whatprovides(ri.dep)
-                        if req:
-                            for j in jobs:
-                                # avoid solvable / job duplication
-                                if req[0] in j.solvables():
-                                    break
-                            else: 
-                                # to test with 'php-common-7.3.4-1.fc30.x86_64' 'php-7.3.9-1.fc30.x86_64' 
-                                #sel = s.pool.matchdepid(ri.dep, flags, keyname)
-                                sel = s.pool.matchdepid(ri.dep, solv.Selection.SELECTION_PROVIDES, solv.SOLVABLE_PROVIDES)
-                                # duplicated package, 
-                                # the SOLVER_RULE_PKG_SAME_NAME will handle
-                                # the issue later
-                                print('Add selection {} to current jobs list'.format(sel))
-                                jobs += sel.jobs(solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED)
-                        else:
-                            # remove solvable from the stack
-                            #import pdb; pdb.set_trace()
-                            remove_solvable_from_jobs(s, jobs)
+                        fake_dep_provides(pool, installed_repo, ri.dep)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 
