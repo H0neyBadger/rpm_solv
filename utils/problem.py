@@ -50,15 +50,18 @@ def remove_solvable_from_jobs(solvable, jobs):
     found = False
     print('Searching solvable: {} in jobs'.format(solvable))
     for job in jobs:
-        if solvable in job.solvables():
+        how = job.how & solv.Job.SOLVER_JOBMASK
+        if how != solv.Job.SOLVER_MULTIVERSION and solvable in job.solvables():
             print('Remove {} from job {}'.format(solvable, job))
             # do not realy remove the job 
             # to keep valid element.jobidx 
             # for solutions
-            job.how = solv.Job.SOLVER_NOOP
+            #print('{:02x}'.format(job.how))
+            job.how &= ~solv.Job.SOLVER_JOBMASK
+            #print('{:02x}'.format(job.how))
             #jobs.remove(job)
             found = True
-            break
+            #break
     return found
 
 def fake_dep_provides(pool, installed_repo, dep):
