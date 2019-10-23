@@ -124,8 +124,7 @@ class data_json(object):
         evr_re = re.compile('^(?:(?P<epoch>\d+):)?(?P<version>.*?)(?:\.(?P<release>\w+))?$')
         # create an empty selection to read 
         # update information from repo
-        updateinfo_sel = None
-        flags = solv.Selection.SELECTION_NAME | solv.Selection.SELECTION_DOTARCH | solv.Selection.SELECTION_REL
+        updateinfo_sel = self.pool.Selection()
         data = {}
         for s in solvables:
             str_name = s.lookup_str(solv.SOLVABLE_NAME)
@@ -190,11 +189,7 @@ class data_json(object):
             data[nevra] = d
             updateinfos = [] 
             # read all <= related packages
-            rel_query = "{}<={}".format(na, str_evr)
-            if updateinfo_sel is None:
-                updateinfo_sel = s.pool.select(rel_query, flags)
-            else: 
-                updateinfo_sel.add(s.pool.select(rel_query, flags))
+            updateinfo_sel.add(s.Selection())
             print("  - %s" % s)
         
         if updateinfo and updateinfo_sel:
