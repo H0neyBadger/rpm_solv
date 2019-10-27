@@ -12,45 +12,7 @@ class JobSolver(object):
         self.default_action = default_action
         self.pool = pool
         self.repos = repos
-        self.patch_stack = {}
         self.sel_filter = pool.Selection_all()
-
-    def __add_update_to_stack(self, jobs):
-        """
-        Compare the input jobs to the update stack 
-        to keep the latest updates (of each package)
-        active in our jobs
-        """
-        for job in jobs:
-            for solvable in job.solvables():
-                str_name = solvable.lookup_str(solv.SOLVABLE_NAME)
-                str_arch = solvable.lookup_str(solv.SOLVABLE_ARCH)
-                na = "{}.{}".format(str_name, str_arch)
-                d = self.patch_stack.get(na, {})
-                self.patch_stack[na] = d
-                other = d.get('solvable', None)
-                if not other:
-                    d['job'] = job
-                    d['solvable'] = solvable
-                    continue
-
-                logger.info("Compare update's evr solvable: `{}` other: `{}`".format(solvable, other))
-                c = solvable.evrcmp(other)
-                if c == 0:
-                    logger.info("Equal evr solvable: `{}` other: `{}`".format(solvable, other))
-                    continue
-                elif c == 1:
-                    logger.info("Keep solvable `{}`".format(solvable))
-                    other_job = d['job']
-                    # nullify other job
-                    other_job.how = solv.Job.SOLVER_NOOP
-                    d['job'] = job
-                    d['solvable'] = solvable
-                elif c == -1:
-                    logger.info("Keep solvable `{}`".format(other))
-                    # a better version already exists
-                    # in our stack
-                    job.how = solv.Job.SOLVER_NOOP
 
     def get_update_collection_selection(self, patch, action):
         """
@@ -71,12 +33,11 @@ class JobSolver(object):
                 #str_col_filename = pos.lookup_str(solv.UPDATE_COLLECTION_FILENAME)
                 #col_flags = pos.lookup_str(solv.UPDATE_COLLECTION_FLAGS)
                 #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
-                nevra = "{}-{}.{}".format(str_col_name, str_col_evr, str_col_arch)
-                sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_CANON)
+                nevra = "{}.{} >= {}".format(str_col_name, str_col_arch, str_col_evr)
+                sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_REL)
                 sel.filter(self.sel_filter)
                 if not sel.isempty():
                     jobs = sel.jobs(action)
-                    self.__add_update_to_stack(jobs)
                     ret += jobs
         return ret
 
