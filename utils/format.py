@@ -173,6 +173,7 @@ class data_json(object):
                 ('nevra', nevra),
                 ('summary', str_summary),
                 ('description', str_description),
+                ('sourcepkg', s.lookup_sourcepkg()),
                 ('buildtime', num_buildtime),
                 ('vendor', str_vendor),
                 ('name', str_name),
