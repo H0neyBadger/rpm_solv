@@ -14,7 +14,7 @@ class JobSolver(object):
         self.repos = repos
         self.sel_filter = pool.Selection_all()
 
-    def get_update_collection_selection(self, sel, sel_filter, operator='>='):
+    def get_update_collection_selection(self, sel, sel_filter, operator='='):
         """
         Return a list of selection issued 
         by and update patch: objects
