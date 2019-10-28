@@ -14,13 +14,13 @@ class JobSolver(object):
         self.repos = repos
         self.sel_filter = pool.Selection_all()
 
-    def get_update_collection_selection(self, patch, action):
+    def get_update_collection_selection(self, sel, sel_filter, operator='>='):
         """
         Return a list of selection issued 
         by and update patch: objects
         """
-        ret = []
-        for solvable in patch.solvables():
+        ret = self.pool.Selection()
+        for solvable in sel.solvables():
             # read UPDATE_COLLECTION to add advisories packages
             # to the solver process 
             pack = solvable.Dataiterator(solv.UPDATE_COLLECTION_NAME, '*', solv.Dataiterator.SEARCH_GLOB)
@@ -33,15 +33,14 @@ class JobSolver(object):
                 #str_col_filename = pos.lookup_str(solv.UPDATE_COLLECTION_FILENAME)
                 #col_flags = pos.lookup_str(solv.UPDATE_COLLECTION_FLAGS)
                 #str_sev = pos.lookup_str(solv.UPDATE_SEVERITY)
-                nevra = "{}.{} >= {}".format(str_col_name, str_col_arch, str_col_evr)
-                sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_REL)
-                sel.filter(self.sel_filter)
-                if not sel.isempty():
-                    jobs = sel.jobs(action)
-                    ret += jobs
+                # operators might be =, <, >, <=, >=,
+                nevra = "{}.{} {} {}".format(str_col_name, str_col_arch, operator, str_col_evr)
+                pkg_sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_REL)
+                ret.add(pkg_sel)
+                ret.filter(sel_filter)
         return ret
 
-    def get_jobs_from_packages(self, packages, action=None):
+    def get_jobs_from_packages(self, packages, action=None, expand_update_collection=True):
         """
         Convert a list of packages or glob expression string 
         into a list of job
@@ -67,14 +66,20 @@ class JobSolver(object):
                 continue
             job_action, arg = self.__parse_job(arg, flags=action)
             if repofilter:
-                repofilter.filter(self.sel_filter)
-                sel = self.__build_selection(arg, sel_filter=repofilter)
+                f = repofilter.filter(self.sel_filter)
             else: 
-                sel = self.__build_selection(arg, sel_filter=self.sel_filter)
-            
+                f = self.sel_filter
+                
+            sel = self.__build_selection(arg, sel_filter=f)
+
+            if expand_update_collection:
+                # read advisories update collection and
+                # add advisory related solvables in the current selection
+                updates_sel = self.get_update_collection_selection(sel, sel_filter=f)
+                sel.add(updates_sel)
+
             if not sel.isempty():
                 # read solvables affected by an update/patch 
-                jobs += self.get_update_collection_selection(sel, job_action) 
                 jobs += sel.jobs(job_action)
         return jobs
 
