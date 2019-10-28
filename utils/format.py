@@ -101,6 +101,7 @@ class data_json(object):
                 query = '{name}.{arch} >= {version}-{release}'.format(**nevra_d) 
                 new_sel = self.pool.select(query, flags)
                 new_sel.filter(sel)
+                info = self.get_updateinfo(p.solvable, str_col_filename)
                 for s in new_sel.solvables():
                     str_name = s.lookup_str(solv.SOLVABLE_NAME)
                     str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
@@ -110,7 +111,6 @@ class data_json(object):
                     if d:
                         # update or insert errata in packages list
                         updateinfos = d.get('updateinfos', [])
-                        info = self.get_updateinfo(p.solvable, str_col_filename)
                         if info not in updateinfos:
                             updateinfos.append(info)
                         d["updateinfos"] = sorted(updateinfos, key=lambda k: k['buildtime'], reverse=True)
@@ -198,7 +198,9 @@ class data_json(object):
         # sort data's packages name
         # sorting is just to ease human reading
         # and/or diff comparison
-        return list(OrderedDict(sorted(data.items())).values())
+        logger.info('Reoder data report')
+        ret = list(OrderedDict(sorted(data.items())).values())
+        return ret
 
 
 
