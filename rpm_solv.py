@@ -142,9 +142,6 @@ def main():
     pool.set_loadcallback(load_stub)
 
     # now load all enabled repos into the pool
-    # create a fake insatlled repo 
-    sysrepo = repo_installed('@Installed', 'system')
-    sysrepo.load(pool)
     for repo in repos:
         if int(repo['enabled']):
             repo.load(pool)
@@ -224,7 +221,7 @@ def main():
         problems = solver.solve(jobs)
         if not problems:
             break
-        problems_callback(jobs, pool, sysrepo, problems)
+        problems_callback(jobs, pool, problems)
         pool.createwhatprovides()
                                     
     # no problems, show transaction

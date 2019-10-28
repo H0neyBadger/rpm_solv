@@ -64,22 +64,18 @@ def remove_solvable_from_jobs(solvable, jobs):
             #break
     return found
 
-def fake_dep_provides(pool, installed_repo, dep):
-    """
-    create a fake solvable
-    to pass dependencies issues
-    """
-    fake = installed_repo.handle.add_solvable()
-    fake.name = 'fake:{}'.format(dep.str())
-    fake.arch = 'noarch'
-    fake.evr =  ''
-    fake.add_deparray(solv.SOLVABLE_PROVIDES, dep)
-    #addedprovides = pool.addfileprovides_queue()
-    #installed_repo.handle.internalize()
-    #installed_repo.updateaddedprovides(addedprovides)
-    #pool.createwhatprovides()
 
-def rule_solver(jobs, pool, installed_repo, problems):
+def remove_dep_from_solvable(dep, solvable):
+    print("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
+    requires = solvable.lookup_idarray(solv.SOLVABLE_REQUIRES)
+    solvable.unset(solv.SOLVABLE_REQUIRES)
+    if dep.id in requires: 
+        requires.remove(dep.id)
+    for d in requires:
+        solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
+
+
+def rule_solver(jobs, pool, problems):
     """
     Solve problems manually from console interactive prompt
     """
@@ -114,21 +110,15 @@ def rule_solver(jobs, pool, installed_repo, problems):
                         # example:
                         # nothing provides python3.7dist(xmltodict) = 0.11.0 
                         # needed by python3-pyvirtualize-0.9-6.20181003git57d2307.fc30.noarch
-                        fake_dep_provides(pool, installed_repo, ri.dep)
-                        #requires = s.lookup_idarray(solv.SOLVABLE_REQUIRES)
-                        #s.unset(solv.SOLVABLE_REQUIRES)
-                        #requires.remove(dep_id)
-                        #for d in requires:
-                        #    s.add_deparray(solv.SOLVABLE_REQUIRES, d)
-                        #    exec_solution(problem.solutions()[0], jobs)
-                        break
+                        remove_dep_from_solvable(ri.dep, ri.solvable)
+                        continue
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_REQUIRES:
                         print('SOLVER_RULE_PKG_REQUIRES') 
                         # example:
                         # package prelude-correlator-5.0.1-1.fc30.x86_64 
                         # requires python3-prelude-correlator >= 5.0.0, 
                         # but none of the providers can be installed
-                        fake_dep_provides(pool, installed_repo, ri.dep)
+                        remove_dep_from_solvable(ri.dep, ri.solvable)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 
@@ -159,7 +149,8 @@ def rule_solver(jobs, pool, installed_repo, problems):
                 else:
                     # for allinfos loop
                     print('Problem allinfos not found')
-                    import pdb; pdb.set_trace()
+                    #import pdb; pdb.set_trace()
+                    break
                     exit(1)
             elif rule.type == solv.Solver.SOLVER_RULE_INFARCH:
                 print('SOLVER_RULE_INFARCH')
