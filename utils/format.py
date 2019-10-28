@@ -72,7 +72,7 @@ class data_json(object):
             ("references", sorted(references, key=lambda k: k['reference_id'], reverse=True)), 
         ))
     
-    def build_updateinfo_stack(self, data):
+    def build_updateinfo_stack(self, data, sel):
         """
         Parse UPDATE_COLLECTION_FILENAME 
         and compare it to available selection
@@ -98,17 +98,16 @@ class data_json(object):
             nevra_m = split_filname_re.match(str_col_filename)
             if nevra_m is not None:
                 nevra_d = nevra_m.groupdict()
-                # create a tmp solvalbe 
-                # to use evr compare function 
-                # against data dict
-                na = '{name}.{arch}'.format(**nevra_d)
-                fake = pos.repo.add_solvable()
-                fake.name = 'fake:{}'.format(str_col_filename)
-                fake.arch = 'noarch'
-                fake.evr =  '{version}-{release}'.format(**nevra_d)
-
-                for d in data.get(na,[]):
-                    if fake.evrcmp(d['solvable']) < 1:
+                query = '{name}.{arch} >= {version}-{release}'.format(**nevra_d) 
+                new_sel = self.pool.select(query, flags)
+                new_sel.filter(sel)
+                for s in new_sel.solvables():
+                    str_name = s.lookup_str(solv.SOLVABLE_NAME)
+                    str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+                    str_evr = s.lookup_str(solv.SOLVABLE_EVR)
+                    nevra = "{}-{}.{}".format(str_name, str_evr, str_arch)
+                    d = data.get(nevra, None)
+                    if d:
                         # update or insert errata in packages list
                         updateinfos = d.get('updateinfos', [])
                         info = self.get_updateinfo(p.solvable, str_col_filename)
@@ -121,13 +120,11 @@ class data_json(object):
                 logger.warning('Failed to match UPDATE_COLLECTION_FILENAME: `{}`'.format(str_col_filename))
                 continue
 
-        logger.info("Updateinfo built")
-
-
     def format(self, solvables, updateinfo=True):
         evr_re = re.compile('^(?:(?P<epoch>\d+):)?(?P<version>.*?)(?:\.(?P<release>\w+))?$')
         # create an empty selection to read 
         # update information from repo
+        updateinfo_sel = self.pool.Selection()
         data = {}
         for s in solvables:
             str_name = s.lookup_str(solv.SOLVABLE_NAME)
@@ -188,29 +185,20 @@ class data_json(object):
                 ('repo', str(s.repo)),
                 ('provides', provides),
                 ('requires', requires),
-                ('solvable', s), 
             ))
-            da = data.get(na,None)
-            if da is None:
-                da = []
-                data[na] = da
-            
-            da.append(d)
+            data[nevra] = d
             updateinfos = [] 
+            # read all <= related packages
+            updateinfo_sel.add(s.Selection())
             print("  - %s" % s)
         
-        if updateinfo:
-            self.build_updateinfo_stack(data)
+        if updateinfo and updateinfo_sel:
+            self.build_updateinfo_stack(data, updateinfo_sel)
 
         # sort data's packages name
         # sorting is just to ease human reading
         # and/or diff comparison
-        l = data.values()
-        ret = []
-        for a in [item for sublist in l for item in sublist]:
-            a.pop('solvable', None)
-            ret.append(a)
-        return sorted(ret, key=lambda k: k['nevra'], reverse=False)
+        return list(OrderedDict(sorted(data.items())).values())
 
 
 
