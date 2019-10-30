@@ -14,9 +14,9 @@ class JobSolver(object):
         self.repos = repos
         self.sel_filter = pool.Selection_all()
 
-    def get_update_collection_selection(self, sel, sel_filter, operator='='):
+    def get_update_collection_selection(self, sel, sel_filter=None, operator='='):
         """
-        Return a list of selection issued 
+        Return a list of selection issued
         by and update patch: objects
         """
         ret = self.pool.Selection()
@@ -37,12 +37,13 @@ class JobSolver(object):
                 nevra = "{}.{} {} {}".format(str_col_name, str_col_arch, operator, str_col_evr)
                 pkg_sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_REL)
                 ret.add(pkg_sel)
-                ret.filter(sel_filter)
+                if sel_filter is not None:
+                    ret.filter(sel_filter)
         return ret
 
-    def get_jobs_from_packages(self, packages, action=None, expand_update_collection=True):
+    def get_jobs_from_packages(self, packages, action=None):
         """
-        Convert a list of packages or glob expression string 
+        Convert a list of packages or glob expression string
         into a list of job
         """
         # convert arguments into jobs
@@ -69,33 +70,32 @@ class JobSolver(object):
                 f = repofilter.filter(self.sel_filter)
             else: 
                 f = self.sel_filter
-                
+
             sel = self.__build_selection(arg, sel_filter=f)
 
-            if expand_update_collection:
-                # read advisories update collection and
-                # add advisory related solvables in the current selection
-                updates_sel = self.get_update_collection_selection(sel, sel_filter=f)
-                sel.add(updates_sel)
-
             if not sel.isempty():
-                # read solvables affected by an update/patch 
+                # read solvables affected by an update/patch
                 jobs += sel.jobs(job_action)
         return jobs
 
-    
-    def __build_selection(self, arg, sel_filter=None, flags=None, emptyfail=True):
+
+    def __build_selection(self, arg, sel_filter=None, flags=None, expand_update_collection=True, emptyfail=True):
         logger.debug('Solve selection query `{}`'.format(arg))
         if flags == None:
             flags = solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_PROVIDES|solv.Selection.SELECTION_GLOB
             flags |= solv.Selection.SELECTION_CANON|solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_REL
             if len(arg) and arg[0] == '/':
                 flags |= solv.Selection.SELECTION_FILELIST
-        
+
         sel = self.pool.select(arg, flags)
+
+        if expand_update_collection:
+            updates_sel = self.get_update_collection_selection(sel, sel_filter=sel_filter)
+            sel.add(updates_sel)
+
         if sel_filter:
             sel.filter(sel_filter)
-        
+
         if emptyfail and sel.isempty():
             logger.error("nothing matches '%s'" % arg)
             exit(1)
@@ -119,8 +119,8 @@ class JobSolver(object):
             for flag_name in flag_names:
                 flag = getattr(solv.Job, 'SOLVER_'+ flag_name.upper(), None)
                 if flag == None:
-                    logger.error("Invalid job flag `{}`. ' \
-                        'please use a valid keywords".format(flag_name))
+                    logger.error("Invalid job flag `{}`. " 
+                        "please use a valid keywords".format(flag_name))
                     exit(1)
                 flags |= flag
 
@@ -138,18 +138,14 @@ class JobSolver(object):
 
         return filter, 'package.x86_64 >= 1.0.0'
         """
-        flags = solv.Selection.SELECTION_NAME \
-            | solv.Selection.SELECTION_CANON \
-            | solv.Selection.SELECTION_DOTARCH \
-            | solv.Selection.SELECTION_REL
 
         is_selection_filter = False
         if pkg.startswith("selection:"):
             # retrieve custom filter
             # selection:add:*
             keyword, action, pkg = pkg.split(':', 2)
-            
-            sel = self.__build_selection(pkg, sel_filter=repofilter, flags=flags, emptyfail=False)
+
+            sel = self.__build_selection(pkg, sel_filter=repofilter, flags=None, emptyfail=False)
             if action in ['add']:
                 # A + B
                 self.sel_filter.add(sel)
@@ -167,9 +163,9 @@ class JobSolver(object):
                 other.filter(sel)
                 self.sel_filter.subtract(other)
             else:
-                logger.error("Invalid selection filter `{}`. ' \
-                        'please use `add`, `subtract` `filter` ' \
-                        'or `symmetric_difference` keywords".format(action))
+                logger.error("Invalid selection filter `{}`. "
+                        "please use `add`, `subtract` `filter` "
+                        "or `symmetric_difference` keywords".format(action))
                 exit(1)
             is_selection_filter = True
         return is_selection_filter
