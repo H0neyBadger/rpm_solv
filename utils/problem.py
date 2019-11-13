@@ -164,6 +164,12 @@ def rule_solver(jobs, pool, problems):
                 print(rule.info().problemstr())
                 s = rule.info().solvable
                 remove_solvable_from_jobs(s, jobs)
+            elif rule.type == solv.Solver.SOLVER_RULE_JOB:
+                print('SOLVER_RULE_JOB')
+                # ??? conflicting requests
+                print(rule.info().problemstr())
+                s = rule.info().solvable
+                remove_solvable_from_jobs(s, jobs)
             else: 
                 print('uknown rule {}'.format(rule.type))
                 #import pdb; pdb.set_trace()
