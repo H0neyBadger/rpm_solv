@@ -50,12 +50,8 @@ class JobSolver(object):
         if not action:
             action=self.default_action
         
-        all_sel = self.pool.Selection_all()
-        # mark all solvable as multiversion
-        # this allow to create a list of packages 
-        # that can satisfy many profiles
-        jobs = all_sel.jobs(solv.Job.SOLVER_MULTIVERSION)
-
+        jobs = []
+        ids = []
         for arg in packages:
             repofilter, arg = self.__get_repofilter(arg) 
             is_selection_filter = self.__parse_filter(arg, repofilter=repofilter)
@@ -75,7 +71,10 @@ class JobSolver(object):
 
             if not sel.isempty():
                 # read solvables affected by an update/patch
-                jobs += sel.jobs(job_action)
+                for s in sel.solvables():
+                    if str(s) not in ids:
+                        ids.append(str(s))
+                        jobs.append(self.pool.Job( job_action | solv.Job.SOLVER_SOLVABLE, s.id))
         return jobs
 
 
