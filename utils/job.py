@@ -14,7 +14,7 @@ class JobSolver(object):
         self.repos = repos
         self.sel_filter = pool.Selection_all()
 
-    def get_update_collection_selection(self, sel, operator='='):
+    def get_update_collection_selection(self, sel, sel_filter=None, operator='='):
         """
         Return a list of selection issued
         by and update patch: objects
@@ -37,6 +37,8 @@ class JobSolver(object):
                 nevra = "{}.{} {} {}".format(str_col_name, str_col_arch, operator, str_col_evr)
                 pkg_sel = solvable.pool.select(nevra, solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_REL)
                 ret.add(pkg_sel)
+                if sel_filter is not None:
+                    ret.filter(sel_filter)
         return ret
 
     def get_jobs_from_packages(self, packages, action=None):
@@ -87,12 +89,12 @@ class JobSolver(object):
 
         sel = self.pool.select(arg, flags)
 
+        if expand_update_collection:
+            updates_sel = self.get_update_collection_selection(sel, sel_filter=sel_filter)
+            sel.add(updates_sel)
+
         if sel_filter:
             sel.filter(sel_filter)
-
-        if expand_update_collection:
-            updates_sel = self.get_update_collection_selection(sel)
-            sel.add(updates_sel)
 
         if emptyfail and sel.isempty():
             logger.error("nothing matches '%s'" % arg)
