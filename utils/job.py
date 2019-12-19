@@ -51,7 +51,7 @@ class JobSolver(object):
             action=self.default_action
         
         jobs = []
-        ids = []
+        ids = {}
         for arg in packages:
             repofilter, arg = self.__get_repofilter(arg) 
             is_selection_filter = self.__parse_filter(arg, repofilter=repofilter)
@@ -72,9 +72,29 @@ class JobSolver(object):
             if not sel.isempty():
                 # read solvables affected by an update/patch
                 for s in sel.solvables():
-                    if str(s) not in ids:
-                        ids.append(str(s))
-                        jobs.append(self.pool.Job( job_action | solv.Job.SOLVER_SOLVABLE, s.id))
+                    # keep the latest package of each
+                    # available solvale
+                    # the aim is to limit the number of
+                    # problem to solv by pruning 
+                    # duplicated package first
+                    str_name = s.lookup_str(solv.SOLVABLE_NAME)
+                    str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+                    na = "{}.{}".format(str_name, str_arch)
+                    other = ids.get(na, None)
+                    if other is not None:
+                        if s.evrcmp(other) == 1:
+                            keep = s
+                        else:
+                            keep = other
+                        ids[na] = keep
+                        logger.debug("compare {} to {}. keep: {}".format(s, other, keep))
+                    else: 
+                        ids[na] = s
+                    
+        for s in ids.values():
+            # build simple job list
+            # form filtered solvables
+            jobs.append(self.pool.Job( job_action | solv.Job.SOLVER_SOLVABLE, s.id))
         return jobs
 
 
