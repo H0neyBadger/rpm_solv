@@ -46,22 +46,33 @@ def exec_solution(solution, jobs):
 
 
 
-def remove_solvable_from_jobs(solvable, jobs):
+def remove_solvable_from_jobs(solvable, jobs, preserve=0):
     found = False
     print('Searching solvable: {} in jobs'.format(solvable))
     for job in jobs:
         how = job.how & solv.Job.SOLVER_JOBMASK
-        if how != solv.Job.SOLVER_MULTIVERSION and solvable in job.solvables():
-            print('Remove {} from job {}'.format(solvable, job))
-            # do not realy remove the job 
-            # to keep valid element.jobidx 
-            # for solutions
-            #print('{:02x}'.format(job.how))
-            job.how &= ~solv.Job.SOLVER_JOBMASK
-            #print('{:02x}'.format(job.how))
-            #jobs.remove(job)
-            found = True
-            #break
+        if how != solv.Job.SOLVER_MULTIVERSION and how != solv.Job.SOLVER_NOOP:
+            for s in job.solvables():
+                if solvable.name == s.name and solvable.evr == s.evr and solvable.arch == s.arch:
+                    # solvable found !!
+                    if preserve > 0:
+                        # keep job active 
+                        # goto next 
+                        print('Preserve {} from job {}'.format(solvable, job))
+                        # used to remove duplicated solvables only
+                        preserve -= 1
+                        found = True
+                        break 
+                    print('Remove {} from job {}'.format(solvable, job))
+                    # do not realy remove the job 
+                    # to keep valid element.jobidx 
+                    # for solutions
+                    #print('{:02x}'.format(job.how))
+                    job.how &= ~solv.Job.SOLVER_JOBMASK
+                    #print('{:02x}'.format(job.how))
+                    #jobs.remove(job)
+                    found = True
+                    #break
     return found
 
 
@@ -75,7 +86,7 @@ def remove_dep_from_solvable(dep, solvable):
         solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
 
 
-def rule_solver(jobs, pool, problems):
+def rule_solver(jobs, pool, problems, dep_solved):
     """
     Solve problems manually from console interactive prompt
     """
@@ -99,11 +110,16 @@ def rule_solver(jobs, pool, problems):
                         other = ri.othersolvable
                         s = ri.solvable
                         print("compare {} to {}".format(s, other))
+                        # preserve : number of copies to keep in job
+                        preserve = 0
                         if s.evrcmp(other) == 1:
                             td = other
+                        elif str(s) == str(other):
+                            preserve = 1
+                            td = s
                         else:
                             td = s
-                        remove_solvable_from_jobs(td, jobs)
+                        remove_solvable_from_jobs(td, jobs, preserve)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP:
                         print("SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP")
@@ -118,7 +134,30 @@ def rule_solver(jobs, pool, problems):
                         # package prelude-correlator-5.0.1-1.fc30.x86_64 
                         # requires python3-prelude-correlator >= 5.0.0, 
                         # but none of the providers can be installed
-                        remove_dep_from_solvable(ri.dep, ri.solvable)
+                        
+                        s = ri.solvable
+                        d = ri.dep
+                        # do not try to solve the same deps twice
+                        key = '{} dep {}'.format(s, d)
+                        print('Try to solve missing req : `{}`'.format(key))
+                        if key in dep_solved:
+                            # we already met that issue before.
+                            # do not repeat the same mistake 
+                            remove_solvable_from_jobs(s, jobs)
+                            break
+                        
+                        req = ri.solvable.pool.whatprovides(ri.dep)
+                        if req:
+                            # the rep exists ( add new job to selection )
+                            # add duplicated package, 
+                            # the SOLVER_RULE_PKG_SAME_NAME will handle
+                            # the issue later
+                            sel = s.pool.matchdepid(ri.dep, solv.Selection.SELECTION_PROVIDES, solv.SOLVABLE_PROVIDES)
+                            print('Add selection {} to current jobs list'.format(sel))
+                            jobs += sel.jobs(solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED)
+                        else: 
+                            remove_dep_from_solvable(ri.dep, ri.solvable)
+                        dep_solved.append(key)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 

@@ -192,6 +192,7 @@ def main():
         #s.unset(solv.SOLVABLE_FILELIST)
 
     action_solver |= solv.Job.SOLVER_CLEANDEPS
+    # action_solver |= solv.Job.SOLVER_FORCEBEST
     if args.weak:
         action_solver |= solv.Job.SOLVER_WEAK
 
@@ -212,6 +213,7 @@ def main():
         #| solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
 
     logger.info('Solv jobs')
+    dep_solved = []
     while True:
         # use a new solver to 
         # avoid error SOLVER_RULE_PKG
@@ -221,7 +223,15 @@ def main():
         problems = solver.solve(jobs)
         if not problems:
             break
-        problems_callback(jobs, pool, problems)
+        problems_callback(jobs, pool, problems, dep_solved)
+        # clear 'do nothing' job from list
+        for job in jobs: 
+            how = job.how & solv.Job.SOLVER_JOBMASK
+            logger.debug('End of loop job cleanup how: {:02x} jobmask: {:02x} job: {}'.format(job.how, how, job))
+            if how == solv.Job.SOLVER_NOOP :
+                logger.info('Remove job {} from jobs stack'.format(job))
+                jobs.remove(job)
+            
         pool.createwhatprovides()
                                     
     # no problems, show transaction
