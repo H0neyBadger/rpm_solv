@@ -213,8 +213,10 @@ def main():
         #| solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
 
     logger.info('Solv jobs')
-    dep_solved = []
+    loop_control = []
+    count = 0
     while True:
+        count +=1
         # use a new solver to 
         # avoid error SOLVER_RULE_PKG
         # "some dependency problem"
@@ -223,15 +225,7 @@ def main():
         problems = solver.solve(jobs)
         if not problems:
             break
-        problems_callback(jobs, pool, problems, dep_solved)
-        # clear 'do nothing' job from list
-        for job in jobs: 
-            how = job.how & solv.Job.SOLVER_JOBMASK
-            logger.debug('End of loop job cleanup how: {:02x} jobmask: {:02x} job: {}'.format(job.how, how, job))
-            if how == solv.Job.SOLVER_NOOP :
-                logger.info('Remove job {} from jobs stack'.format(job))
-                jobs.remove(job)
-            
+        problems_callback(count, jobs, pool, problems, loop_control)
         pool.createwhatprovides()
                                     
     # no problems, show transaction

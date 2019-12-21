@@ -1,6 +1,10 @@
 import sys
 import solv
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 def interactive(jobs, problems):
     """
     Solve problems manually from console interactive prompt
@@ -44,35 +48,54 @@ def exec_solution(solution, jobs):
             if newjob and newjob not in jobs:
                 jobs.append(newjob)
 
-
-
-def remove_solvable_from_jobs(solvable, jobs, preserve=0):
-    found = False
-    print('Searching solvable: {} in jobs'.format(solvable))
-    for job in jobs:
+def get_solvables_from_jobs(jobs):
+    for idx, job in enumerate(jobs):
         how = job.how & solv.Job.SOLVER_JOBMASK
         if how != solv.Job.SOLVER_MULTIVERSION and how != solv.Job.SOLVER_NOOP:
             for s in job.solvables():
-                if solvable.name == s.name and solvable.evr == s.evr and solvable.arch == s.arch:
-                    # solvable found !!
-                    if preserve > 0:
-                        # keep job active 
-                        # goto next 
-                        print('Preserve {} from job {}'.format(solvable, job))
-                        # used to remove duplicated solvables only
-                        preserve -= 1
-                        found = True
-                        break 
-                    print('Remove {} from job {}'.format(solvable, job))
-                    # do not realy remove the job 
-                    # to keep valid element.jobidx 
-                    # for solutions
-                    #print('{:02x}'.format(job.how))
-                    job.how &= ~solv.Job.SOLVER_JOBMASK
-                    #print('{:02x}'.format(job.how))
-                    #jobs.remove(job)
-                    found = True
-                    #break
+                yield idx, s
+
+def search_solvables_from_jobs(jobs, **kwargs):
+    for idx, s in get_solvables_from_jobs(jobs):
+        for key, arg in kwargs.items():
+            v = getattr(s, key)
+            if str(v) != arg:
+                break
+        else: 
+            # the key/arg loop did not break
+            # solver match found
+            yield idx, s
+        # the key/arg loop did break
+        # go to next solvable
+        
+ 
+def remove_job(idx, jobs):
+     # do not realy remove the job 
+     # to keep valid element.jobidx 
+     # for solutions
+     job = jobs[idx]
+     job.how &= ~solv.Job.SOLVER_JOBMASK
+     return job
+       
+def remove_solvable_from_jobs(solvable, jobs, preserve=0):
+    print('Searching solvable: {} in jobs'.format(solvable))
+    found = False
+    for idx, s in search_solvables_from_jobs(jobs, name=solvable.name, evr=solvable.evr, arch=solvable.arch):
+        # solvable found !!
+        if preserve > 0:
+            # keep job active 
+            # goto next 
+            print('Preserve {} from job {}'.format(solvable, job))
+            # used to remove duplicated solvables only
+            preserve -= 1
+            found = True
+            break 
+        job = remove_job(idx, jobs)
+        print('Remove {} from job {}'.format(solvable, job))
+        #print('{:02x}'.format(job.how))
+        #jobs.remove(job)
+        found = True
+        #break
     return found
 
 
@@ -86,14 +109,14 @@ def remove_dep_from_solvable(dep, solvable):
         solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
 
 
-def rule_solver(jobs, pool, problems, dep_solved):
+def rule_solver(count, jobs, pool, problems, loop_control):
     """
     Solve problems manually from console interactive prompt
     """
     import time
+    njobs = []
     for problem in problems:
-        print("Problem %d/%d:" % (problem.id, len(problems)))
-        print(problem)
+        print("Problem loop: {}, {}/{}: ".format(count, problem.id, len(problems), problem))
         #rules = problem.findallproblemrules()
         # read the first problem rule
         rules = (problem.findproblemrule(),)
@@ -119,7 +142,11 @@ def rule_solver(jobs, pool, problems, dep_solved):
                             td = s
                         else:
                             td = s
-                        remove_solvable_from_jobs(td, jobs, preserve)
+                        found = remove_solvable_from_jobs(td, jobs, preserve)
+                        if not found:
+                            solution = problem.solutions()
+                            if len(solution) > 0:
+                                exec_solution(solution[0], jobs)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP:
                         print("SOLVER_RULE_PKG_NOTHING_PROVIDES_DEP")
@@ -140,24 +167,26 @@ def rule_solver(jobs, pool, problems, dep_solved):
                         # do not try to solve the same deps twice
                         key = '{} dep {}'.format(s, d)
                         print('Try to solve missing req : `{}`'.format(key))
-                        if key in dep_solved:
+                        if key in loop_control:
                             # we already met that issue before.
                             # do not repeat the same mistake 
                             remove_solvable_from_jobs(s, jobs)
+                            #import pdb; pdb.set_trace()
                             break
-                        
+                         
                         req = ri.solvable.pool.whatprovides(ri.dep)
-                        if req:
+                        if len(req):
                             # the rep exists ( add new job to selection )
                             # add duplicated package, 
                             # the SOLVER_RULE_PKG_SAME_NAME will handle
                             # the issue later
-                            sel = s.pool.matchdepid(ri.dep, solv.Selection.SELECTION_PROVIDES, solv.SOLVABLE_PROVIDES)
-                            print('Add selection {} to current jobs list'.format(sel))
-                            jobs += sel.jobs(solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED)
+                            for r in req:
+                                job = r.pool.Job( solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED | solv.Job.SOLVER_SOLVABLE, r.id)
+                                njobs.append(job)
+                                print('Add job `{}` to current jobs list'.format(job))
                         else: 
                             remove_dep_from_solvable(ri.dep, ri.solvable)
-                        dep_solved.append(key)
+                        loop_control.append(key)
                         break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 
@@ -213,4 +242,43 @@ def rule_solver(jobs, pool, problems, dep_solved):
                 print('uknown rule {}'.format(rule.type))
                 #import pdb; pdb.set_trace()
                 exit(1)
+    # playing with the jobs durring problem resolution
+    # may raises seg fault from libsolv
+    jobs += njobs
+    ids = {}
+    # clear job stack of duplicated rpm name
+    for idx, s in search_solvables_from_jobs(jobs):
+        # keep the latest package of each
+        # available solvale
+        # the aim is to limit the number of
+        # problem to solv by pruning 
+        # duplicated package first
+        str_name = s.lookup_str(solv.SOLVABLE_NAME)
+        str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+        na = "{}.{}".format(str_name, str_arch)
+        other, oidx = ids.get(na, (None, None))
+        job = None
+        if other is not None:
+            if s.evrcmp(other) == 1:
+                keep = s
+                kidx = idx
+                job = remove_job(oidx, jobs)
+            else:
+                keep = other
+                kidx = oidx
+                job = remove_job(idx, jobs)
+            ids[na] = (keep, kidx)
+            logger.debug("compare `{}` to `{}`. keep: `{}`. clear job: `{}`->`{}`".format(s, other, keep, kidx, job))
+        else: 
+            ids[na] = (s, idx)
 
+    # clear 'do nothing' job from list
+    # the same jobs array is reused for the next round
+    for job in jobs: 
+        how = job.how & solv.Job.SOLVER_JOBMASK
+        logger.debug('End of loop job cleanup how: {:02x} jobmask: {:02x} job: {}'.format(job.how, how, job))
+        if how == solv.Job.SOLVER_NOOP :
+            logger.info('Remove job {} from jobs stack'.format(job))
+            # 
+            jobs.remove(job)
+     
