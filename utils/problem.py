@@ -59,6 +59,8 @@ def search_solvables_from_jobs(jobs, **kwargs):
     for idx, s in get_solvables_from_jobs(jobs):
         for key, arg in kwargs.items():
             v = getattr(s, key)
+            if not isinstance(v, str):
+                v = v()
             if str(v) != arg:
                 break
         else: 
@@ -99,11 +101,38 @@ def remove_solvable_from_jobs(jobs, solvable, preserve=0):
     return found
 
 def remove_requied_solvables(jobs, solvable):
+    raise Exception('No api available for requires solvable query')
+    # SELECTION_REQUIRES is not queryable
     print("Remove solvable `{}` requirements".format(solvable))
     for dep in solvable.lookup_idarray(solv.SOLVABLE_REQUIRES):
         sel = solvable.pool.matchdepid(dep, solv.Selection.SELECTION_REQUIRES, solv.SOLVABLE_REQUIRES)
         for s in sel.solvables():
             found = remove_solvable_from_jobs(jobs, s)
+
+def get_next_evr_from_solvable(solvable):
+    """
+    return the next version available for a specific solvable
+    (solvable.evr + 1)
+
+    return None if no better version exists for this solvable
+    """
+    # search all solvable greater than our origin
+    nevra = "{}.{} > {}".format(solvable.name, solvable.arch, solvable.evr)
+    pkg_sel = solvable.pool.select(nevra, 
+        solv.Selection.SELECTION_DOTARCH|solv.Selection.SELECTION_NAME|solv.Selection.SELECTION_REL)
+    ret = None
+    for other in pkg_sel.solvables():
+        if not ret:
+            ret = other
+        else: 
+            if ret.evrcmp(other) == 1:
+                # ret > other
+                # keep only the solvable next to 
+                # our origin 
+                logger.debug('Next solvable candidate found ' \
+                        'origin: `{}` (`{}` < `{}`)'.format(solvable, other, ret))
+                ret = other
+    return ret
 
 def remove_dep_from_solvable(dep, solvable):
     print("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
@@ -113,6 +142,116 @@ def remove_dep_from_solvable(dep, solvable):
         requires.remove(dep.id)
     for d in requires:
         solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
+
+def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, problem):
+    dep = rule_info.dep
+    # create job from required package
+    flags = solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED | solv.Job.SOLVER_SOLVABLE
+    job = required.pool.Job(flags, required.id)
+
+    #################
+    # inferior arch #
+    #################
+    
+    # check if a package with a different arch exist in the job stack
+    found = False
+    for idx, other in search_solvables_from_jobs(jobs, name=required.name, evr=required.evr):
+        if other.arch == required.arch:
+            # the required in already in the stack 
+            # pass to the next issue
+            break
+        else: 
+            found = True
+    else:
+        # the loop did not break
+        # and we found the same package 
+        # with a difference arch 
+        if found == True:
+            # add required to the stack
+            print('Inferior arch found: Add job `{}` to current jobs list'.format(job))
+            new_jobs.append(job)
+            # leave the fuction
+            return True
+        # else: goto evaluate next possible problem
+
+    # check if a better version of our solvable exists
+    next_solvable = get_next_evr_from_solvable(solvable)
+    #next_required = get_next_evr_from_solvable(required)
+    
+    ##############
+    # superseded #
+    ##############
+    # to test this issue
+    # 'hwloc-libs-2.0.4-1.fc31.i686' 'legion-openmpi-19.09.1-1.fc31.i686'
+    # search if a beter version exists in our jobs
+    found = False
+    for idx, other in search_solvables_from_jobs(jobs, name=required.name, arch=required.arch):
+        if required.evrcmp(other) == -1:
+            print('Required package is superseded dep: ' \
+                    '`{}`->`{}` by: `{}`'.format(solvable, required, other, dep))
+
+            found = remove_solvable_from_jobs(jobs, solvable)
+            found = remove_solvable_from_jobs(jobs, required)
+ 
+            if next_solvable is not None:
+                # a better version exists:
+                # replace the current job 
+                # by a newer version
+                print('A better solvable version exists: ' \
+                        'replace `{}` by `{}`'.format(solvable, next_solvable))
+ 
+                job = next_solvable.pool.Job(flags, next_solvable.id)
+                if job not in new_jobs:
+                    new_jobs.append(job)
+            # this problem is a dead end.
+            # and the solvable require an old version to be installed
+            
+            # try to remove all job issued by a specific source file
+            source = solvable.lookup_sourcepkg()
+            found = False
+            # FIXME: remove_requied_solvables() 
+            # TODO find all packages that requires this dep
+            for idx, s_solvable in search_solvables_from_jobs(jobs, lookup_sourcepkg=source):
+                print('Dep error: remove solvable from source' \
+                        ' idx: `{}` source: `{}` solvable: `{}`'.format(idx, source, s_solvable)) 
+                remove_job(jobs, idx)
+                found = True
+            
+            # remove the dep to keep packages in install list
+            # remove_dep_from_solvable(dep, solvable)
+            # s_found = remove_solvable_from_jobs(jobs, solvable)
+            # r_found = remove_solvable_from_jobs(jobs, required)
+            if False:
+                interactive(jobs, [problem])
+                import pdb; pdb.set_trace()
+            break 
+        else:
+            # no other package supersed the current one
+            # remove other old pkg
+            remove_job(jobs, idx)
+            break
+    else:
+        # add required to the stack
+        #print('Add job `{}` to current jobs list'.format(job))
+        if next_solvable: 
+            print('A better solvable version exists: ' \
+                    'replace `{}` by `{}`'.format(solvable, next_solvable))
+            job = next_solvable.pool.Job(flags, next_solvable.id)
+            new_jobs.append(job)
+            return True
+        else: 
+            # remove_dep_from_solvable(dep, solvable)
+            found = remove_solvable_from_jobs(jobs, solvable)
+            # r_found = remove_solvable_from_jobs(jobs, required)
+            if not found:
+                print('Dep problem not solved')
+                #interactive(jobs, [problem])
+                #import pdb; pdb.set_trace()
+                return False
+
+    #new_jobs.append(job)
+    return True
+
 
 def rule_solver(count, jobs, pool, problems, loop_control):
     """
@@ -171,34 +310,33 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                         d = ri.dep
                         # do not try to solve the same deps twice
                         req = ri.solvable.pool.whatprovides(d)
+                        key = '`{}` dep `{}`'.format(s, d)
+                        if key in loop_control:
+                            pass
+                            #interactive(jobs, [problem])
+                            #import pdb; pdb.set_trace()
+                        
+                        loop_control.append(key)
                         
                         if len(req):
                             # the rep exists ( add new job to selection )
                             # add duplicated package, 
                             # the SOLVER_RULE_PKG_SAME_NAME will handle
                             # the issue later
+                            loop = []
                             for r in req:
-                                # to test this issue
-                                # 'hwloc-libs-2.0.4-1.fc31.i686' 'legion-openmpi-19.09.1-1.fc31.i686'
-                                job = r.pool.Job( solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED | solv.Job.SOLVER_SOLVABLE, r.id)
-                                # search if a beter version exists in our jobs
-                                for idx, other in search_solvables_from_jobs(jobs, name=r.name, arch=r.arch):
-                                    if r.evrcmp(other) != 1:
-                                        print('Solvable is superseded dep: `{}`->`{}` by: `{}`'.format(s, r, other, d))
-                                        remove_dep_from_solvable(d, s)
-                                        #found = remove_solvable_from_jobs(jobs, s)
-                                        #found = remove_solvable_from_jobs(jobs, r)
+                                # req may contains the same package 
+                                # futher time
+                                if str(r) not in loop:
+                                    fixed = fix_pkg_requires_problem(jobs, njobs, s, r, ri, problem)
+                                    loop.append(str(r))
+                                    if fixed: 
                                         break
-                                    else: 
-                                        # remove other old pkg
-                                        remove_job(jobs, idx)
-                                else:
-                                   # keep r in the stack
-                                   print('Add job `{}` to current jobs list'.format(job))
-                                   njobs.append(job)
+                            break
                         else: 
                             print('dep not found for solvable: `{}` dep: `{}`'.format(s, d))
                             remove_dep_from_solvable(ri.dep, ri.solvable)
+                            break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 
                         # example
