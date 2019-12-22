@@ -80,7 +80,7 @@ def remove_job(jobs, idx):
      return job
        
 def remove_solvable_from_jobs(jobs, solvable, preserve=0):
-    print('Searching solvable: {} in jobs'.format(solvable))
+    logger.debug('Searching solvable: {} in jobs'.format(solvable))
     found = False
     for idx, s in search_solvables_from_jobs(jobs, name=solvable.name, evr=solvable.evr, arch=solvable.arch):
         # solvable found !!
@@ -135,7 +135,7 @@ def get_next_evr_from_solvable(solvable):
     return ret
 
 def remove_dep_from_solvable(dep, solvable):
-    print("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
+    logger.debug("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
     requires = solvable.lookup_idarray(solv.SOLVABLE_REQUIRES)
     solvable.unset(solv.SOLVABLE_REQUIRES)
     if dep.id in requires: 
@@ -143,133 +143,54 @@ def remove_dep_from_solvable(dep, solvable):
     for d in requires:
         solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
 
-def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, problem):
+def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, problem, force=False):
+    #interactive(jobs, [problem])
+    #import pdb; pdb.set_trace()
     dep = rule_info.dep
-    # create job from required package
     flags = solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED | solv.Job.SOLVER_SOLVABLE
-
-    # check if a better version of our solvable exists
     next_solvable = get_next_evr_from_solvable(solvable)
-    #next_required = get_next_evr_from_solvable(required)
-    
-    ##############
-    # superseded #
-    ##############
-    # to test this issue
-    # 'hwloc-libs-2.0.4-1.fc31.i686' 'legion-openmpi-19.09.1-1.fc31.i686'
-    # search if a beter version exists in our jobs
     found = False
-    for idx, other in search_solvables_from_jobs(jobs, name=required.name, arch=required.arch):
-        if required.evrcmp(other) == -1:
-            print('Required package is superseded dep: ' \
-                    '`{}`->`{}` by: `{}`'.format(solvable, required, other, dep))
-
-            found = remove_solvable_from_jobs(jobs, solvable)
-            found = remove_solvable_from_jobs(jobs, required)
-           
-            next_solvable_source = None
-            if next_solvable is not None:
-                # a better version exists:
-                # replace the current job 
-                # by a newer version
-                print('A better solvable version exists: ' \
-                        'replace `{}` by `{}`'.format(solvable, next_solvable))
- 
-                job = next_solvable.pool.Job(flags, next_solvable.id)
-                if job not in new_jobs:
-                    new_jobs.append(job)
-                next_solvable_source = next_solvable.lookup_sourcepkg()
-                
-            # this problem is a dead end.
-            # and the solvable require an old version to be installed
-            
-            # try to remove all job issued by a specific source file
-            source = solvable.lookup_sourcepkg()
-            found = False
-            # FIXME: remove_requied_solvables() 
-            # TODO find all packages that requires this dep
-            for idx, s_solvable in search_solvables_from_jobs(jobs, lookup_sourcepkg=source):
-                print('Dep: remove solvable from source' \
-                        ' idx: `{}` source: `{}` solvable: `{}`'.format(idx, source, s_solvable)) 
-                
-                # replace jobs with a new version
-                if next_solvable_source is not None:
-                    next_s_solvable = get_next_evr_from_solvable(s_solvable)
-                    if next_s_solvable is None:
-                        print('Dep ERROR: failed to find next solvable' \
-                                ' idx: `{}` source: `{}` solvable: `{}`'.format(idx, source, s_solvable))
-                    elif next_s_solvable.lookup_sourcepkg() != next_solvable_source:
-                        new_source = next_s_solvable.lookup_sourcepkg()
-                        print('Dep ERROR: failed to find a valid next sovlable from source' \
-                                ' solvable: `{}` old_source: `{}`'
-                                ' new_source: `{}` expected_source: `{}`'.format(
-                                    s_solvable, source, new_source, next_solvable_source)) 
-                    else:
-                        print('Dep: replace solvable with a newer version' \
-                                ' old: `{}` old_source: `{}` new: `{}`' \
-                                ' new_source:`{}`'.format(s_solvable, source, next_s_solvable, next_solvable_source))
-                        job = next_s_solvable.pool.Job(flags, next_s_solvable.id)
-                        if job not in new_jobs:
-                            new_jobs.append(job)
-                else: 
-                    print('Dep: remove solvable from source' \
-                            ' idx: `{}` source: `{}` solvable: `{}`'.format(idx, source, s_solvable)) 
-
-                remove_job(jobs, idx)
-                found = True
-            
-            # remove the dep to keep packages in install list
-            # remove_dep_from_solvable(dep, solvable)
-            # s_found = remove_solvable_from_jobs(jobs, solvable)
-            # r_found = remove_solvable_from_jobs(jobs, required)
-            if False:
-                interactive(jobs, [problem])
-                import pdb; pdb.set_trace()
-            break 
-        else:
-            # no other package supersed the current one
-            # remove other old pkg
-            remove_job(jobs, idx)
-            break
-    else:
-        # add required to the stack
-        #print('Add job `{}` to current jobs list'.format(job))
-        if next_solvable: 
-            print('A better solvable version exists: ' \
-                    'replace `{}` by `{}`'.format(solvable, next_solvable))
-            job = next_solvable.pool.Job(flags, next_solvable.id)
-            new_jobs.append(job)
-            return True
+    for idx, job in search_solvables_from_jobs(jobs, name=solvable.name, evr=solvable.evr, arch=solvable.arch):
+        if next_solvable is not None:
+            job.how = flags
+            job.what = next_solvable.id
+            print('Replace solvable: `{}` by `{}'.format(solvable, next_solvable))
         else: 
-            # remove_dep_from_solvable(dep, solvable)
-            found = remove_solvable_from_jobs(jobs, solvable)
-            # r_found = remove_solvable_from_jobs(jobs, required)
-            if not found:
-                print('Dep problem not solved')
-                #interactive(jobs, [problem])
-                #import pdb; pdb.set_trace()
-                solutions = problem.solutions()
-                sol = None
-                for idx, solution in enumerate(solutions):
-                    print("  Solution %d:" % solution.id)
-                    elements = solution.elements(True)
-                    for element in elements:
-                        print("  - %s" % element.str())
-                        if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
-                            newjob = element.Job()
-                            job_solvable_id = jobs[element.jobidx].what
-                            if job_solvable_id == solvable.id or job_solvable_id == required.id:
-                                sol = idx
-                
-                #import pdb; pdb.set_trace()
-                for element in solutions[sol].elements():
-                    if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
-                        newjob = element.Job()
-                        jobs[element.jobidx] = newjob
-                    else: 
-                        if newjob and newjob not in jobs:
-                            jobs.append(newjob)
- 
+            # remove missing dep and make this solvable weak
+            remove_dep_from_solvable(dep, solvable)
+            job.how = flags | solv.Job.SOLVER_WEAK
+            print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
+        found = True
+        break
+    else:
+        # the for loop did not break:
+        found = False
+
+    if not found or force:
+        # run solutions as last resort
+        solutions = problem.solutions()
+        sol = None
+        #print(problem)
+        for idx, solution in enumerate(solutions):
+            print("  Solution %d:" % solution.id)
+            elements = solution.elements(True)
+            for element in elements:
+                print("  - %s" % element.str())
+                if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
+                    newjob = element.Job()
+                    job_solvable_id = jobs[element.jobidx].what
+                    if job_solvable_id == solvable.id or job_solvable_id == required.id:
+                        sol = idx
+        
+        #import pdb; pdb.set_trace()
+        for element in solutions[sol].elements():
+            print('Run solution: `{}` `{}`'.format(sol+1, element.str()))
+            if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
+                newjob = element.Job()
+                jobs[element.jobidx] = newjob
+            else: 
+                if newjob and newjob not in jobs:
+                    jobs.append(newjob)
     return True
 
 
@@ -331,8 +252,12 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                         # do not try to solve the same deps twice
                         req = ri.solvable.pool.whatprovides(d)
                         key = '`{}` dep `{}`'.format(s, d)
+                        force = False
                         if key in loop_control:
-                            pass
+                            # force solver solution
+                            # if we meet the same 
+                            # problem twice
+                            force = True
                             #interactive(jobs, [problem])
                             #import pdb; pdb.set_trace()
                         
@@ -348,7 +273,7 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                                 # req may contains the same package 
                                 # futher time
                                 if str(r) not in loop:
-                                    fixed = fix_pkg_requires_problem(jobs, njobs, s, r, ri, problem)
+                                    fixed = fix_pkg_requires_problem(jobs, njobs, s, r, ri, problem, force=force)
                                     loop.append(str(r))
                                     if fixed: 
                                         break
@@ -454,6 +379,5 @@ def rule_solver(count, jobs, pool, problems, loop_control):
         logger.debug('End of loop job cleanup how: {:02x} jobmask: {:02x} job: {}'.format(job.how, how, job))
         if how == solv.Job.SOLVER_NOOP :
             logger.info('Remove job {} from jobs stack'.format(job))
-            # 
             jobs.remove(job)
      
