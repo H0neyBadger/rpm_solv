@@ -69,7 +69,7 @@ def search_solvables_from_jobs(jobs, **kwargs):
         # go to next solvable
         
  
-def remove_job(idx, jobs):
+def remove_job(jobs, idx):
      # do not realy remove the job 
      # to keep valid element.jobidx 
      # for solutions
@@ -77,7 +77,7 @@ def remove_job(idx, jobs):
      job.how &= ~solv.Job.SOLVER_JOBMASK
      return job
        
-def remove_solvable_from_jobs(solvable, jobs, preserve=0):
+def remove_solvable_from_jobs(jobs, solvable, preserve=0):
     print('Searching solvable: {} in jobs'.format(solvable))
     found = False
     for idx, s in search_solvables_from_jobs(jobs, name=solvable.name, evr=solvable.evr, arch=solvable.arch):
@@ -90,7 +90,7 @@ def remove_solvable_from_jobs(solvable, jobs, preserve=0):
             preserve -= 1
             found = True
             break 
-        job = remove_job(idx, jobs)
+        job = remove_job(jobs, idx)
         print('Remove {} from job {}'.format(solvable, job))
         #print('{:02x}'.format(job.how))
         #jobs.remove(job)
@@ -98,6 +98,12 @@ def remove_solvable_from_jobs(solvable, jobs, preserve=0):
         #break
     return found
 
+def remove_requied_solvables(jobs, solvable):
+    print("Remove solvable `{}` requirements".format(solvable))
+    for dep in solvable.lookup_idarray(solv.SOLVABLE_REQUIRES):
+        sel = solvable.pool.matchdepid(dep, solv.Selection.SELECTION_REQUIRES, solv.SOLVABLE_REQUIRES)
+        for s in sel.solvables():
+            found = remove_solvable_from_jobs(jobs, s)
 
 def remove_dep_from_solvable(dep, solvable):
     print("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
@@ -108,7 +114,6 @@ def remove_dep_from_solvable(dep, solvable):
     for d in requires:
         solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
 
-
 def rule_solver(count, jobs, pool, problems, loop_control):
     """
     Solve problems manually from console interactive prompt
@@ -116,7 +121,7 @@ def rule_solver(count, jobs, pool, problems, loop_control):
     import time
     njobs = []
     for problem in problems:
-        print("Problem loop: {}, {}/{}: ".format(count, problem.id, len(problems), problem))
+        print("Problem loop: {}, {}/{}: `{}`".format(count, problem.id, len(problems), problem))
         #rules = problem.findallproblemrules()
         # read the first problem rule
         rules = (problem.findproblemrule(),)
@@ -142,7 +147,7 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                             td = s
                         else:
                             td = s
-                        found = remove_solvable_from_jobs(td, jobs, preserve)
+                        found = remove_solvable_from_jobs(jobs, td, preserve)
                         if not found:
                             solution = problem.solutions()
                             if len(solution) > 0:
@@ -165,29 +170,35 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                         s = ri.solvable
                         d = ri.dep
                         # do not try to solve the same deps twice
-                        key = '{} dep {}'.format(s, d)
-                        print('Try to solve missing req : `{}`'.format(key))
-                        if key in loop_control:
-                            # we already met that issue before.
-                            # do not repeat the same mistake 
-                            remove_solvable_from_jobs(s, jobs)
-                            #import pdb; pdb.set_trace()
-                            break
-                         
-                        req = ri.solvable.pool.whatprovides(ri.dep)
+                        req = ri.solvable.pool.whatprovides(d)
+                        
                         if len(req):
                             # the rep exists ( add new job to selection )
                             # add duplicated package, 
                             # the SOLVER_RULE_PKG_SAME_NAME will handle
                             # the issue later
                             for r in req:
+                                # to test this issue
+                                # 'hwloc-libs-2.0.4-1.fc31.i686' 'legion-openmpi-19.09.1-1.fc31.i686'
                                 job = r.pool.Job( solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED | solv.Job.SOLVER_SOLVABLE, r.id)
-                                njobs.append(job)
-                                print('Add job `{}` to current jobs list'.format(job))
+                                # search if a beter version exists in our jobs
+                                for idx, other in search_solvables_from_jobs(jobs, name=r.name, arch=r.arch):
+                                    if r.evrcmp(other) != 1:
+                                        print('Solvable is superseded dep: `{}`->`{}` by: `{}`'.format(s, r, other, d))
+                                        remove_dep_from_solvable(d, s)
+                                        #found = remove_solvable_from_jobs(jobs, s)
+                                        #found = remove_solvable_from_jobs(jobs, r)
+                                        break
+                                    else: 
+                                        # remove other old pkg
+                                        remove_job(jobs, idx)
+                                else:
+                                   # keep r in the stack
+                                   print('Add job `{}` to current jobs list'.format(job))
+                                   njobs.append(job)
                         else: 
+                            print('dep not found for solvable: `{}` dep: `{}`'.format(s, d))
                             remove_dep_from_solvable(ri.dep, ri.solvable)
-                        loop_control.append(key)
-                        break
                     elif ri.type == solv.Solver.SOLVER_RULE_PKG_CONFLICTS:
                         print('SOLVER_RULE_PKG_CONFLICTS') 
                         # example
@@ -208,7 +219,7 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                         # provided by libibmad-1.3.13-1.el7.x86_64
                         other = ri.othersolvable
                         #s.unset(solv.SOLVABLE_OBSOLETES)
-                        remove_solvable_from_jobs(other, jobs)
+                        remove_solvable_from_jobs(jobs, other)
                         break
                     else:
                         print('uknown rule info {}'.format(ri.type))
@@ -216,10 +227,16 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                         exit(1)
                 else:
                     # for allinfos loop
-                    print('Problem allinfos not found')
-                    #import pdb; pdb.set_trace()
-                    break
-                    exit(1)
+                    if not rule_all_infos:
+                        i = rule.info()
+                        if i: 
+                            print('Problem allinfos not found: `{}` ' \
+                                    'with solvable: `{}` and other :`{}`'.format(
+                                    i.problemstr(), i.solvable, i.othersolvable))
+                            #import pdb; pdb.set_trace()
+                        else: 
+                            print('Problem allinfos not found `{}`'.format(i))
+                        break
             elif rule.type == solv.Solver.SOLVER_RULE_INFARCH:
                 print('SOLVER_RULE_INFARCH')
                 # from libsolv-bindings.txt
@@ -231,13 +248,13 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                 # gcc-gfortran-9.0.1-0.10.fc30.i686 has inferior architecture
                 print(rule.info().problemstr())
                 s = rule.info().solvable
-                remove_solvable_from_jobs(s, jobs)
+                remove_solvable_from_jobs(jobs, s)
             elif rule.type == solv.Solver.SOLVER_RULE_JOB:
                 print('SOLVER_RULE_JOB')
                 # ??? conflicting requests
                 print(rule.info().problemstr())
                 s = rule.info().solvable
-                remove_solvable_from_jobs(s, jobs)
+                remove_solvable_from_jobs(jobs, s)
             else: 
                 print('uknown rule {}'.format(rule.type))
                 #import pdb; pdb.set_trace()
@@ -262,11 +279,11 @@ def rule_solver(count, jobs, pool, problems, loop_control):
             if s.evrcmp(other) == 1:
                 keep = s
                 kidx = idx
-                job = remove_job(oidx, jobs)
+                job = remove_job(jobs, oidx)
             else:
                 keep = other
                 kidx = oidx
-                job = remove_job(idx, jobs)
+                job = remove_job(jobs, idx)
             ids[na] = (keep, kidx)
             logger.debug("compare `{}` to `{}`. keep: `{}`. clear job: `{}`->`{}`".format(s, other, keep, kidx, job))
         else: 
