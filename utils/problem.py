@@ -5,6 +5,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import time
+
 def interactive(jobs, problems):
     """
     Solve problems manually from console interactive prompt
@@ -80,7 +82,7 @@ def remove_job(jobs, idx):
      return job
        
 def remove_solvable_from_jobs(jobs, solvable, preserve=0):
-    logger.debug('Searching solvable: {} in jobs'.format(solvable))
+    print('Searching solvable: {} in jobs'.format(solvable))
     found = False
     for idx, s in search_solvables_from_jobs(jobs, name=solvable.name, evr=solvable.evr, arch=solvable.arch):
         # solvable found !!
@@ -135,7 +137,7 @@ def get_next_evr_from_solvable(solvable):
     return ret
 
 def remove_dep_from_solvable(dep, solvable):
-    logger.debug("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
+    print("Remove dep `{}` form solvable `{}`".format(dep.str(), solvable))
     requires = solvable.lookup_idarray(solv.SOLVABLE_REQUIRES)
     solvable.unset(solv.SOLVABLE_REQUIRES)
     if dep.id in requires: 
@@ -143,7 +145,7 @@ def remove_dep_from_solvable(dep, solvable):
     for d in requires:
         solvable.add_deparray(solv.SOLVABLE_REQUIRES, d)
 
-def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, problem, force=False):
+def fix_pkg_requires_problem(jobs, new_jobs, solvable, requires, rule_info, problem, force=False):
     #interactive(jobs, [problem])
     #import pdb; pdb.set_trace()
     dep = rule_info.dep
@@ -159,7 +161,7 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, prob
             # remove missing dep and make this solvable weak
             remove_dep_from_solvable(dep, solvable)
             job.how = flags | solv.Job.SOLVER_WEAK
-            print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
+            #print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
         found = True
         break
     else:
@@ -167,6 +169,9 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, prob
         found = False
 
     if not found or force:
+        solvable_match = [solvable.id]
+        for req in requires:
+            solvable_match.append(req.id)
         # run solutions as last resort
         solutions = problem.solutions()
         sol = None
@@ -177,13 +182,16 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, required, rule_info, prob
             for element in elements:
                 print("  - %s" % element.str())
                 if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
-                    newjob = element.Job()
                     job_solvable_id = jobs[element.jobidx].what
-                    if job_solvable_id == solvable.id or job_solvable_id == required.id:
+                    if job_solvable_id in solvable_match:
+                        if sol is not None:
+                            pass
+                            #import pdb; pdb.set_trace()
                         sol = idx
-        
-        #import pdb; pdb.set_trace()
-        for element in solutions[sol].elements():
+        if sol is None: 
+            return False
+            #import pdb; pdb.set_trace()
+        for element in solutions[sol].elements(True):
             print('Run solution: `{}` `{}`'.format(sol+1, element.str()))
             if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
                 newjob = element.Job()
@@ -268,15 +276,9 @@ def rule_solver(count, jobs, pool, problems, loop_control):
                             # add duplicated package, 
                             # the SOLVER_RULE_PKG_SAME_NAME will handle
                             # the issue later
-                            loop = []
-                            for r in req:
-                                # req may contains the same package 
-                                # futher time
-                                if str(r) not in loop:
-                                    fixed = fix_pkg_requires_problem(jobs, njobs, s, r, ri, problem, force=force)
-                                    loop.append(str(r))
-                                    if fixed: 
-                                        break
+                            # req may contains the same package 
+                            # futher time
+                            fixed = fix_pkg_requires_problem(jobs, njobs, s, req, ri, problem, force=force)
                             break
                         else: 
                             print('dep not found for solvable: `{}` dep: `{}`'.format(s, d))
