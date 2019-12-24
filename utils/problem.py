@@ -150,28 +150,24 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, requires, rule_info, prob
     #import pdb; pdb.set_trace()
     dep = rule_info.dep
     flags = solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED | solv.Job.SOLVER_SOLVABLE
-    next_solvable = get_next_evr_from_solvable(solvable)
     found = False
-    for idx, job in search_solvables_from_jobs(jobs, name=solvable.name, evr=solvable.evr, arch=solvable.arch):
-        if next_solvable is not None:
-            job.how = flags
-            job.what = next_solvable.id
-            print('Replace solvable: `{}` by `{}'.format(solvable, next_solvable))
-        else: 
-            # remove missing dep and make this solvable weak
-            remove_dep_from_solvable(dep, solvable)
-            job.how = flags | solv.Job.SOLVER_WEAK
-            #print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
-        found = True
-        break
-    else:
-        # the for loop did not break:
-        found = False
-
+    print("Solvable `{}` requires dep `{}`, provided by one of: `{}`".format(solvable, dep, requires))
+    for s_dep in solvable.pool.whatmatchesdep(solv.SOLVABLE_REQUIRES, dep.id):
+        for idx, job in search_solvables_from_jobs(jobs, name=s_dep.name, evr=s_dep.evr, arch=s_dep.arch):
+            next_solvable = get_next_evr_from_solvable(s_dep)
+            if next_solvable is not None:
+                job.how = flags
+                job.what = next_solvable.id
+                print('Replace solvable: `{}` by `{}'.format(s_dep, next_solvable))
+            else: 
+                # remove missing dep and make this solvable weak
+                remove_dep_from_solvable(dep, s_dep)
+                job.how = flags | solv.Job.SOLVER_WEAK
+                #print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
+            found = True
+            break
+    
     if not found or force:
-        solvable_match = [solvable.id]
-        for req in requires:
-            solvable_match.append(req.id)
         # run solutions as last resort
         solutions = problem.solutions()
         sol = None
@@ -181,24 +177,54 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, requires, rule_info, prob
             elements = solution.elements(True)
             for element in elements:
                 print("  - %s" % element.str())
+                if 'despite the inferior architecture' in element.str() and len(elements) == 1:
+                    # try to solv the problem by adding i686 packages
+                    sol = idx 
+                    logger.debug('Select solution `{}` based on string match `despite the inferior architecture`'.format(sol))
+                    break
                 if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
-                    job_solvable_id = jobs[element.jobidx].what
-                    if job_solvable_id in solvable_match:
-                        if sol is not None:
-                            pass
-                            #import pdb; pdb.set_trace()
-                        sol = idx
-        if sol is None: 
-            return False
+                    job_element = jobs[element.jobidx]
+                    for s in job_element.solvables():
+                        for r in requires: 
+                            if r.name == s.name:
+                                logger.debug("compare {} to {}".format(s, r))
+                                if r.evrcmp(s) >= 0:
+                                    # get rid of the current problem 
+                                    # by removing the involved 
+                                    # requirements/solvables
+                                    
+                                    # the required pkg is >= than the solution
+                                    # remove the current solution from the job stack
+                                    sol = idx
+                                    logger.debug('Select solution `{}` based on solvable match'.format(sol))
+                                    break
+                        else:
+                            # the requirement loop 
+                            # did not break goto next
+                            continue
+                        # the requiremnt loop 
+                        # did break (leave to solvable loop)
+                        break
+
+        if sol is None and force == False: 
             #import pdb; pdb.set_trace()
+            return False
+        elif sol is None and force == True:
+            #import pdb; pdb.set_trace()
+            # FIXME use a default answer to get rid of this problem
+            logger.error('Failed to find a valid solution ' \
+                    ' for problem `{}` (infinit loop?) '.format(problem))
+            sol = 0
+        
+        # fix problem
         for element in solutions[sol].elements(True):
             print('Run solution: `{}` `{}`'.format(sol+1, element.str()))
+            newjob = element.Job()
             if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
-                newjob = element.Job()
                 jobs[element.jobidx] = newjob
             else: 
                 if newjob and newjob not in jobs:
-                    jobs.append(newjob)
+                    new_jobs.append(newjob)
     return True
 
 
@@ -348,38 +374,41 @@ def rule_solver(count, jobs, pool, problems, loop_control):
     # may raises seg fault from libsolv
     jobs += njobs
     ids = {}
-    # clear job stack of duplicated rpm name
-    for idx, s in search_solvables_from_jobs(jobs):
-        # keep the latest package of each
-        # available solvale
-        # the aim is to limit the number of
-        # problem to solv by pruning 
-        # duplicated package first
-        str_name = s.lookup_str(solv.SOLVABLE_NAME)
-        str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
-        na = "{}.{}".format(str_name, str_arch)
-        other, oidx = ids.get(na, (None, None))
-        job = None
-        if other is not None:
-            if s.evrcmp(other) == 1:
-                keep = s
-                kidx = idx
-                job = remove_job(jobs, oidx)
-            else:
-                keep = other
-                kidx = oidx
-                job = remove_job(jobs, idx)
-            ids[na] = (keep, kidx)
-            logger.debug("compare `{}` to `{}`. keep: `{}`. clear job: `{}`->`{}`".format(s, other, keep, kidx, job))
-        else: 
-            ids[na] = (s, idx)
 
-    # clear 'do nothing' job from list
-    # the same jobs array is reused for the next round
-    for job in jobs: 
-        how = job.how & solv.Job.SOLVER_JOBMASK
-        logger.debug('End of loop job cleanup how: {:02x} jobmask: {:02x} job: {}'.format(job.how, how, job))
-        if how == solv.Job.SOLVER_NOOP :
-            logger.info('Remove job {} from jobs stack'.format(job))
-            jobs.remove(job)
-     
+    # run clean every 10 round
+    if (count % 10) == 2:
+        # clear job stack of duplicated rpm name
+        for idx, s in search_solvables_from_jobs(jobs):
+            # keep the latest package of each
+            # available solvale
+            # the aim is to limit the number of
+            # problem to solv by pruning 
+            # duplicated package first
+            str_name = s.lookup_str(solv.SOLVABLE_NAME)
+            str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+            na = "{}.{}".format(str_name, str_arch)
+            other, oidx = ids.get(na, (None, None))
+            job = None
+            if other is not None:
+                if s.evrcmp(other) == 1:
+                    keep = s
+                    kidx = idx
+                    job = remove_job(jobs, oidx)
+                else:
+                    keep = other
+                    kidx = oidx
+                    job = remove_job(jobs, idx)
+                ids[na] = (keep, kidx)
+                logger.debug("compare `{}` to `{}`. keep: `{}`. clear job: `{}`->`{}`".format(s, other, keep, kidx, job))
+            else: 
+                ids[na] = (s, idx)
+
+        # clear 'do nothing' job from list
+        # the same jobs array is reused for the next round
+        for job in jobs: 
+            how = job.how & solv.Job.SOLVER_JOBMASK
+            logger.debug('End of loop job cleanup how: {:02x} jobmask: {:02x} job: {}'.format(job.how, how, job))
+            if how == solv.Job.SOLVER_NOOP :
+                logger.info('Remove job {} from jobs stack'.format(job))
+                jobs.remove(job)
+         

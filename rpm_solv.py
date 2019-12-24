@@ -227,6 +227,8 @@ def main():
             break
         problems_callback(count, jobs, pool, problems, loop_control)
         pool.createwhatprovides()
+        # do not allow the script to run more than 3000 loop
+        assert (count <= 3000),"Loop count limit reached"
                                     
     # no problems, show transaction
     trans = solver.transaction()
