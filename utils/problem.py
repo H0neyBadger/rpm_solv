@@ -50,15 +50,15 @@ def exec_solution(solution, jobs):
             if newjob and newjob not in jobs:
                 jobs.append(newjob)
 
-def get_solvables_from_jobs(jobs):
-    for idx, job in enumerate(jobs):
+def get_solvables_from_cache(cache):
+    for idx, job, s in cache:
         how = job.how & solv.Job.SOLVER_JOBMASK
         if how != solv.Job.SOLVER_MULTIVERSION and how != solv.Job.SOLVER_NOOP:
-            for s in job.solvables():
-                yield idx, s
+            yield idx, job, s
 
-def search_solvables_from_jobs(jobs, **kwargs):
-    for idx, s in get_solvables_from_jobs(jobs):
+def search_solvables_from_jobs(jobs, name=None, **kwargs):
+    c_jobs = cache.get(name, [])
+    for idx, job, s in get_solvables_from_cache(c_jobs):
         for key, arg in kwargs.items():
             v = getattr(s, key)
             if not isinstance(v, str):
@@ -163,13 +163,14 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, requires, rule_info, prob
                 # remove missing dep and make this solvable weak
                 remove_dep_from_solvable(dep, s_dep)
                 job.how = flags | solv.Job.SOLVER_WEAK
-                #print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
+                print('Remove dep: `{}` from solvable: `{}` on job:`{}`'.format(dep, solvable, job))
             found = True
             break
     
     if not found or force:
         # run solutions as last resort
         solutions = problem.solutions()
+        problem_solvable = requires[:] + [solvable] 
         sol = None
         #print(problem)
         for idx, solution in enumerate(solutions):
@@ -185,7 +186,7 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, requires, rule_info, prob
                 if element.type == solv.Solver.SOLVER_SOLUTION_JOB:
                     job_element = jobs[element.jobidx]
                     for s in job_element.solvables():
-                        for r in requires: 
+                        for r in problem_solvable: 
                             if r.name == s.name:
                                 logger.debug("compare {} to {}".format(s, r))
                                 if r.evrcmp(s) >= 0:
@@ -227,6 +228,14 @@ def fix_pkg_requires_problem(jobs, new_jobs, solvable, requires, rule_info, prob
                     new_jobs.append(newjob)
     return True
 
+cache = {}
+def build_job_cache(jobs):
+    for idx, job in enumerate(jobs):
+        for s in job.solvables():
+            data = cache.get(s.name, [])
+            d = (idx, job, s)
+            data.append(d) 
+            cache[s.name] = data
 
 def rule_solver(count, jobs, pool, problems, loop_control):
     """
@@ -234,6 +243,7 @@ def rule_solver(count, jobs, pool, problems, loop_control):
     """
     import time
     njobs = []
+    build_job_cache(jobs)
     for problem in problems:
         print("Problem loop: {}, {}/{}: `{}`".format(count, problem.id, len(problems), problem))
         #rules = problem.findallproblemrules()
