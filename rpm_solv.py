@@ -25,8 +25,8 @@ from utils.repo import dir_path, \
         repo_system, \
         repo_installed
 
-from utils.problem import interactive, \
-        rule_solver
+from utils.problem import InteractiveSolver, \
+        ProblemSolver
 
 from utils.format import data_json 
 
@@ -36,7 +36,6 @@ from utils.format import data_json
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 def main():
     parser = argparse.ArgumentParser(description="RPM cli dependency solver") 
@@ -109,8 +108,8 @@ def main():
             releasever = s.evr.split('-')[0]
             logger.debug('Read releasever {}'.format(releasever))
         tmp.free()
-    # problems_callback = interactive
-    problems_callback = rule_solver
+    # problems_class = interactive
+    problems_class = ProblemSolver
     data_writer = data_json
 
     # action_solver = solv.Job.SOLVER_DISTUPGRADE
@@ -207,29 +206,11 @@ def main():
 
     if verbose > 2:
         pool.set_debuglevel(verbose-2)
-
-    flags = solv.Solver.SOLVER_FLAG_SPLITPROVIDES \
-        | solv.Solver.SOLVER_FLAG_NO_INFARCHCHECK \
-        #| solv.Solver.SOLVER_FLAG_BEST_OBEY_POLICY \
-
+    
     logger.info('Solv jobs')
-    loop_control = []
-    count = 0
-    while True:
-        count +=1
-        # use a new solver to 
-        # avoid error SOLVER_RULE_PKG
-        # "some dependency problem"
-        solver = pool.Solver()
-        solver.set_flag(flags, 1)
-        problems = solver.solve(jobs)
-        if not problems:
-            break
-        problems_callback(count, jobs, pool, problems, loop_control)
-        pool.createwhatprovides()
-        # do not allow the script to run more than 3000 loop
-        assert (count <= 3000),"Loop count limit reached"
-                                    
+    problem_solver = problems_class(pool)
+    solver = problem_solver.run_problem_loop(jobs)
+
     # no problems, show transaction
     trans = solver.transaction()
     del solver

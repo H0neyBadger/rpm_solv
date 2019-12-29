@@ -51,6 +51,12 @@ class JobSolver(object):
             action=self.default_action
         
         jobs = []
+        #all_sel = self.pool.Selection_all()
+        # mark all solvable as multiversion
+        # this allow to create a list of packages 
+        # that can satisfy many profiles        
+        #jobs = all_sel.jobs(solv.Job.SOLVER_MULTIVERSION)
+        	
         ids = {}
         for arg in packages:
             repofilter, arg = self.__get_repofilter(arg) 
