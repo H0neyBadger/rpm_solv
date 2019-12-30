@@ -22,7 +22,7 @@ class AbstractProblemSolver:
     def solv_problems(self, problems):
         assert False
 
-    def __build_job_cache(self):
+    def build_job_cache(self):
         """
         Build solvalbe name hashtable
         for fast job idx retrival
@@ -57,7 +57,7 @@ class AbstractProblemSolver:
             problems = solver.solve(self.jobs)
             if not problems:
                 break
-            self.__build_job_cache()
+            self.build_job_cache()
             self.solv_problems(problems)
             
             #self.remove_duplicated_names()
@@ -264,7 +264,7 @@ class InteractiveSolver(AbstractProblemSolver):
 
 class ProblemSolver(AbstractProblemSolver):
 
-    def get_next_evr_from_solvable(self, solvable):
+    def _get_next_evr_from_solvable(self, solvable):
         """
         return the next version available for a specific solvable
         (solvable.evr + 1)
@@ -289,7 +289,7 @@ class ProblemSolver(AbstractProblemSolver):
                     ret = other
         return ret
 
-    def fix_pkg_requires_problem(self, solvable, requires, rule_info, problem, force=False):
+    def _fix_pkg_requires_problem(self, solvable, requires, rule_info, problem, force=False):
         #interactive(jobs, [problem])
         #import pdb; pdb.set_trace()
         dep = rule_info.dep
@@ -299,7 +299,7 @@ class ProblemSolver(AbstractProblemSolver):
                 "provided by one of: `{}` forced: `{}`".format(solvable, dep, requires, force))
         for s_dep_leaf in self.pool.whatmatchesdep(solv.SOLVABLE_REQUIRES, dep.id):
             for idx, job, s in self.search_solvables_from_cache(name=s_dep_leaf.name, evr=s_dep_leaf.evr, arch=s_dep_leaf.arch):
-                next_solvable = self.get_next_evr_from_solvable(s_dep_leaf)
+                next_solvable = self._get_next_evr_from_solvable(s_dep_leaf)
                 if next_solvable is not None:
                     #job.how = flags | solv.Job.SOLVER_WEAK 
                     self.remove_job(idx)
@@ -323,12 +323,12 @@ class ProblemSolver(AbstractProblemSolver):
                     self.new_jobs.append(install_job) 
                     found = True
         if not found and force:
-            return self.fix_pkg_requires_solutions(solvable, 
+            return self._fix_pkg_requires_solutions(solvable, 
                     requires, rule_info, problem, force=force)
 
         return found
 
-    def fix_pkg_requires_solutions(self, solvable, requires, rule_info, problem, force=False):
+    def _fix_pkg_requires_solutions(self, solvable, requires, rule_info, problem, force=False):
         # run solutions as last resort
         # solvable.pool.set_debuglevel(1)
         solutions = problem.solutions()
@@ -480,6 +480,7 @@ class ProblemSolver(AbstractProblemSolver):
                             # example:
                             # nothing provides python3.7dist(xmltodict) = 0.11.0 
                             # needed by python3-pyvirtualize-0.9-6.20181003git57d2307.fc30.noarch
+                            print("Remove dep `{}` form solvable `{}`".format(ri.dep.str(), ri.solvable))
                             self.remove_dep_from_solvable(ri.dep, ri.solvable)
                             continue
                         elif ri.type == solv.Solver.SOLVER_RULE_PKG_REQUIRES:
@@ -512,7 +513,7 @@ class ProblemSolver(AbstractProblemSolver):
                                 # the issue later
                                 # req may contains the same package 
                                 # futher time
-                                fixed = self.fix_pkg_requires_problem(s, req, ri, problem, force=force)
+                                fixed = self._fix_pkg_requires_problem(s, req, ri, problem, force=force)
                                 break
                             else: 
                                 print('dep not found for solvable: `{}` dep: `{}`'.format(s, d))
@@ -578,4 +579,169 @@ class ProblemSolver(AbstractProblemSolver):
                     print('uknown rule {}'.format(rule.type))
                     #import pdb; pdb.set_trace()
                     exit(1)
-            
+ 
+class MultiversionProblemSolver(ProblemSolver):
+    """
+    this class mark all solvable as MULTIVERSION install
+    it allows us to keep many solutions active at the same
+    time
+    """
+
+    def run_problem_loop(self, jobs):
+        """
+        wrap super run loop
+        """
+        all_sel = self.pool.Selection_all()
+        # mark all solvable as multiversion
+        # this allow to create a list of packages 
+        # that can satisfy many profiles        
+        jobs = all_sel.jobs(solv.Job.SOLVER_MULTIVERSION) + jobs
+
+        changed = True
+        while changed:
+            solver = super().run_problem_loop(jobs)
+            self.build_job_cache()
+            trans = solver.transaction()
+            solvables = []
+
+            for cl in trans.classify(solv.Transaction.SOLVER_TRANSACTION_SHOW_OBSOLETES | 
+                    solv.Transaction.SOLVER_TRANSACTION_OBSOLETE_IS_UPGRADE):
+                if cl.type == solv.Transaction.SOLVER_TRANSACTION_INSTALL:
+                    pass
+                elif cl.type == solv.Transaction.SOLVER_TRANSACTION_REINSTALLED:
+                    pass
+                elif cl.type == solv.Transaction.SOLVER_TRANSACTION_DOWNGRADED:
+                    pass
+                elif cl.type == solv.Transaction.SOLVER_TRANSACTION_CHANGED:
+                    pass
+                elif cl.type == solv.Transaction.SOLVER_TRANSACTION_UPGRADED:
+                    pass
+                elif cl.type == solv.Transaction.SOLVER_TRANSACTION_VENDORCHANGE:
+                    pass
+                elif cl.type == solv.Transaction.SOLVER_TRANSACTION_ARCHCHANGE:
+                    pass
+                else:
+                    continue
+             
+                solvables += cl.solvables()
+            #import pdb; pdb.set_trace() 
+            changed = self.__align_multiversion_pacakges(solvables) 
+        return solver
+    
+    def __lt(self, s, o):
+        return s.evrcmp(o) == 1
+
+    def __gt(self, s, o):
+        return o.evrcmp(s) == 1
+
+    def __compare_solvables(self, ids, solvables, func, deps=False, update=False):
+        """
+        Use dict to compare solvables sets
+        """
+        # clear job stack of duplicated rpm name
+        ret = False
+        for s in solvables:
+            str_name = s.lookup_str(solv.SOLVABLE_NAME)
+            str_arch = s.lookup_str(solv.SOLVABLE_ARCH)
+            na = "{}.{}".format(str_name, str_arch)
+            other, d = ids.get(na, (None, None))
+            changed = False
+            if other is not None:
+                if func(s, other):
+                    # remove other
+                    keep = s
+                    changed = True
+                    if deps:
+                        d = self.__get_solvable_deps(keep)
+                else:
+                    # remove solvable
+                    keep = other
+                    if deps and d is None and not update:
+                        # update only if needed
+                        d = self.__get_solvable_deps(keep)
+                ids[na] = (keep, d)
+                if changed:
+                    ret = changed
+                
+                logger.debug("Compare `{}` to `{}` using `{}` function " \
+                        "keep: `{}` changed: `{}`.".format(s, other, func, keep, changed))
+            elif not update: 
+                ids[na] = (s, d)
+        return ret
+
+    def __merge_ids(self, idsa, idsb):
+        """
+        upsert idsb in idsa
+        keep the best solvable of each
+        """
+        solvables = []
+        for solvable, deps in idsb.values():
+            solvables.append(solvable)
+        changed = self.__compare_solvables(idsa, solvables, 
+                self.__lt, deps=True, update=True)
+        return changed 
+
+    def __align_multiversion_pacakges(self, solvables):
+        """
+        Read solver results in order to align solvable
+        return jobs form aligned packages
+        """
+        ids = {}
+        # keep the hightest version
+        # of each solvable in ids
+        count = 0
+        print("Deps propagation loop: `{}` deps: `{}`".format(count, 0))
+        changed = self.__compare_solvables(ids, solvables, self.__lt, deps=True)
+        old_deps = []
+        ret = False
+        while changed:
+            count += 1
+            deps = []
+            for s, d in ids.values():
+                if d and d not in deps and d not in old_deps:
+                    deps.append(d)
+            print("Deps propagation loop: `{}` deps: `{}` " \
+                    "changed: `{}`, ret: `{}`".format(count, len(deps), changed, ret))
+            changed = False
+            for d in deps:
+                dep_ids = {}
+                # keep le lowest version of each dep 
+                self.__compare_solvables(dep_ids, d, self.__gt)
+                # merge ids with its own deps
+                r = self.__merge_ids(ids, dep_ids)
+                if r:
+                    changed = True
+                    ret = True
+            old_deps += deps
+        
+        # all solvables dep are aligned each others
+        # update job stack from ids
+        default_flags = solv.Job.SOLVER_INSTALL | solv.Job.SOLVER_TARGETED
+        for solvable, deps in ids.values():
+            for idx, job, o in self.search_solvables_from_cache(name=solvable.name, arch=solvable.arch):
+                # import pdb; pdb.set_trace() 
+                if solvable.evrcmp(o) == 1:
+                    # replace/update job
+                    how = job.how & solv.Job.SOLVER_JOBMASK
+                    flags = how | solv.Job.SOLVER_SOLVABLE
+                    newjob = self.pool.Job(flags, solvable.id)
+                    self.jobs[idx] = newjob
+                    print("Replace job `{}` with `{}` for dependencies alignment".format(job, newjob))
+                    break
+            else: 
+                # the loop did no break
+                newjob = self.pool.Job(default_flags | solv.Job.SOLVER_SOLVABLE, solvable.id)
+                print("Create job `{}` for dependencies alignment".format(newjob))
+                self.jobs.append(newjob)
+        return ret
+        
+
+    def __get_solvable_deps(self, solvable):
+        """
+        Return an array of solvables
+        that depends of input solvable
+        """
+        logger.debug("Retrieve sovlables' deps: `{}`".format(solvable))
+        return self.pool.whatmatchessolvable(solv.SOLVABLE_REQUIRES, solvable)
+
+

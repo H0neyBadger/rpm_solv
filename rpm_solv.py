@@ -26,6 +26,7 @@ from utils.repo import dir_path, \
         repo_installed
 
 from utils.problem import InteractiveSolver, \
+        MultiversionProblemSolver, \
         ProblemSolver
 
 from utils.format import data_json 
@@ -109,7 +110,7 @@ def main():
             logger.debug('Read releasever {}'.format(releasever))
         tmp.free()
     # problems_class = interactive
-    problems_class = ProblemSolver
+    problems_class = MultiversionProblemSolver
     data_writer = data_json
 
     # action_solver = solv.Job.SOLVER_DISTUPGRADE
