@@ -595,11 +595,11 @@ class MultiversionProblemSolver(ProblemSolver):
         # mark all solvable as multiversion
         # this allow to create a list of packages 
         # that can satisfy many profiles        
-        jobs = all_sel.jobs(solv.Job.SOLVER_MULTIVERSION) + jobs
+        self.jobs = all_sel.jobs(solv.Job.SOLVER_MULTIVERSION) + jobs
 
         changed = True
         while changed:
-            solver = super().run_problem_loop(jobs)
+            solver = super().run_problem_loop(self.jobs)
             self.build_job_cache()
             trans = solver.transaction()
             solvables = []
@@ -706,7 +706,7 @@ class MultiversionProblemSolver(ProblemSolver):
             for d in deps:
                 dep_ids = {}
                 # keep le lowest version of each dep 
-                self.__compare_solvables(dep_ids, d, self.__gt)
+                self.__compare_solvables(dep_ids, d, self.__lt)
                 # merge ids with its own deps
                 r = self.__merge_ids(ids, dep_ids)
                 if r:
@@ -741,7 +741,8 @@ class MultiversionProblemSolver(ProblemSolver):
         Return an array of solvables
         that depends of input solvable
         """
-        logger.debug("Retrieve sovlables' deps: `{}`".format(solvable))
-        return self.pool.whatmatchessolvable(solv.SOLVABLE_REQUIRES, solvable)
+        ret = self.pool.whatmatchessolvable(solv.SOLVABLE_REQUIRES, solvable)
+        logger.debug("Retrieve sovlables' `{}` deps: `{}`".format(solvable, ret))
+        return ret
 
 
